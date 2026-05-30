@@ -1,0 +1,21 @@
+# Caddyfile — Reverse Proxy Configuration
+# Handles SSL automatically via Let's Encrypt
+
+{
+    email admin@yourdomain.com
+}
+
+# API
+api.yourdomain.com {
+    reverse_proxy backend:8000
+}
+
+# Dashboard
+app.yourdomain.com {
+    reverse_proxy dashboard:3000
+}
+
+# n8n (internal only — restrict via Tailscale in production)
+n8n.yourdomain.com {
+    reverse_proxy n8n:5678
+}

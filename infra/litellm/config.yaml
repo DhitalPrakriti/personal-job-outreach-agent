@@ -1,0 +1,41 @@
+model_list:
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+      max_budget: 150.0  # USD per month
+
+  - model_name: claude-haiku
+    litellm_params:
+      model: anthropic/claude-3-5-haiku-20241022
+      api_key: os.environ/ANTHROPIC_API_KEY
+      max_budget: 50.0
+
+  # Fallback model (if Anthropic is down)
+  - model_name: claude-sonnet
+    litellm_params:
+      model: anthropic/claude-sonnet-4-20250514
+      api_key: os.environ/ANTHROPIC_API_KEY
+      num_retries: 3
+      timeout: 30
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  alerting:
+    - slack
+  alert_types:
+    - budget_alerts
+    - failed_tracking
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  max_budget: 200.0      # Total monthly budget USD
+  budget_duration: 1mo
+  num_retries: 2
+  request_timeout: 60
+  cache: true
+  cache_params:
+    type: redis
+    host: redis
+    port: 6379

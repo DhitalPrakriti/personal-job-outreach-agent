@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+
+# Docker
+docker-compose.override.yml
+
+# Database
+*.db
+*.sqlite3
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Secrets (NEVER commit these)
+*.pem
+*.key
+*.cert
+secrets/
+
+# Backups
+backups/
+*.sql.gz
+
+# n8n local data
+n8n-data/
+
+# Dify local data
+dify-data/
+
+# Qdrant local data
+qdrant-data/
+
+# Redis dump
+dump.rdb
+
+# PostgreSQL data
+pgdata/
