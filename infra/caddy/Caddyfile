@@ -1,21 +1,18 @@
-# Caddyfile — Reverse Proxy Configuration
-# Handles SSL automatically via Let's Encrypt
+# Caddy reverse proxy. Set the domain variables in .env before production use.
 
 {
-    email admin@yourdomain.com
+    email {$CADDY_EMAIL}
 }
 
-# API
-api.yourdomain.com {
+{$API_DOMAIN} {
     reverse_proxy backend:8000
 }
 
-# Dashboard
-app.yourdomain.com {
+{$APP_DOMAIN} {
     reverse_proxy dashboard:3000
 }
 
-# n8n (internal only — restrict via Tailscale in production)
-n8n.yourdomain.com {
+# Keep this hostname private or protect it with an identity-aware proxy.
+{$N8N_DOMAIN} {
     reverse_proxy n8n:5678
 }

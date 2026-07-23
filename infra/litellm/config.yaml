@@ -1,4 +1,14 @@
 model_list:
+  - model_name: local-smollm
+    litellm_params:
+      model: ollama/smollm2:135m
+      api_base: http://host.docker.internal:11434
+
+  - model_name: local-qwen
+    litellm_params:
+      model: ollama/qwen2.5:0.5b
+      api_base: http://host.docker.internal:11434
+
   - model_name: claude-sonnet
     litellm_params:
       model: anthropic/claude-sonnet-4-20250514
@@ -11,21 +21,13 @@ model_list:
       api_key: os.environ/ANTHROPIC_API_KEY
       max_budget: 50.0
 
-  # Fallback model (if Anthropic is down)
-  - model_name: claude-sonnet
-    litellm_params:
-      model: anthropic/claude-sonnet-4-20250514
-      api_key: os.environ/ANTHROPIC_API_KEY
-      num_retries: 3
-      timeout: 30
+router_settings:
+  routing_strategy: least-busy
+  num_retries: 2
+  timeout: 60
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
-  alerting:
-    - slack
-  alert_types:
-    - budget_alerts
-    - failed_tracking
 
 litellm_settings:
   drop_params: true

@@ -1,0 +1,37 @@
+substitutions:
+  _REGION: us-central1
+  _SERVICE: personal-outreach-agent
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - Dockerfile.cloudrun
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/personal-outreach/personal-outreach-agent:$SHORT_SHA
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/personal-outreach/personal-outreach-agent:$SHORT_SHA
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/personal-outreach/personal-outreach-agent:$SHORT_SHA
+      - --region
+      - ${_REGION}
+      - --platform
+      - managed
+      - --allow-unauthenticated
+      - --port
+      - "8080"
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/personal-outreach/personal-outreach-agent:$SHORT_SHA

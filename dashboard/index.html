@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Personal AI Outreach Agent</title>
+  <link rel="stylesheet" href="./styles.css?v=20260721-practical-gmail">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <p class="eyebrow">Personal AI Outreach</p>
+      <h1>Job Search Command Center</h1>
+      <nav class="view-tabs" aria-label="Dashboard views">
+        <button class="tab-button active" type="button" data-section-target="dashboard">Dashboard</button>
+        <button class="tab-button" type="button" data-section-target="qa-checklist">Dry-Run QA</button>
+        <button class="tab-button" type="button" data-section-target="job-discovery">Job Discovery</button>
+        <button class="tab-button" type="button" data-section-target="linkedin-tracker">LinkedIn Tracker</button>
+        <button class="tab-button" type="button" data-section-target="indeed-tracker">Indeed Tracker</button>
+        <button class="tab-button" type="button" data-section-target="opportunities">Opportunities</button>
+        <button class="tab-button" type="button" data-section-target="applications">Applications</button>
+        <button class="tab-button" type="button" data-section-target="company-research">Company Research</button>
+        <button class="tab-button" type="button" data-section-target="contact-finder">Contact Finder</button>
+        <button class="tab-button" type="button" data-section-target="drafts">Drafts / Approval Queue</button>
+        <button class="tab-button" type="button" data-section-target="gmail-outreach">Gmail Outreach</button>
+        <button class="tab-button" type="button" data-section-target="replies">Replies</button>
+        <button class="tab-button" type="button" data-section-target="followups">Follow-ups</button>
+        <button class="tab-button" type="button" data-section-target="settings">Settings</button>
+        <button class="tab-button" type="button" data-view-target="audit-view">
+          Audit Logs <span id="audit-tab-count" class="tab-count">0</span>
+        </button>
+      </nav>
+    </div>
+    <div class="status-bar">
+      <span id="api-status" class="status-pill">Checking API</span>
+      <button id="refresh-all" type="button">Refresh Local</button>
+    </div>
+  </header>
+
+  <main id="workflow-view" class="layout dashboard-view">
+    <section class="panel wide dashboard-overview" data-workspace-panel="dashboard">
+      <div class="panel-header">
+        <div>
+          <h2>Pipeline Overview</h2>
+          <p class="muted compact-copy">Current workload across discovery, applications, outreach, and replies.</p>
+        </div>
+      </div>
+      <div id="dashboard-kpis" class="metric-grid"></div>
+      <div id="dashboard-next-actions" class="next-actions"></div>
+    </section>
+
+    <section id="dashboard-section" class="panel wide" data-workspace-panel="dashboard">
+      <div class="panel-header">
+        <h2>Integration Readiness</h2>
+        <span id="readiness-status" class="status-pill">Checking</span>
+      </div>
+      <div id="readiness-summary" class="summary-grid"></div>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="qa-checklist">
+      <div class="panel-header">
+        <div>
+          <h2>Dry-Run QA</h2>
+          <p class="muted compact-copy">End-to-end safety check for real job-search opportunities before LLM or live sending.</p>
+        </div>
+        <span id="qa-status" class="status-pill">Checking</span>
+      </div>
+      <div id="qa-summary" class="summary-grid"></div>
+      <div class="section-actions qa-actions">
+        <button class="secondary" type="button" data-qa-target="settings">Settings</button>
+        <button class="secondary" type="button" data-qa-target="job-discovery">Job Discovery</button>
+        <button class="secondary" type="button" data-qa-target="opportunities">Opportunities</button>
+        <button class="secondary" type="button" data-qa-target="drafts">Drafts</button>
+        <button class="secondary" type="button" data-qa-target="gmail-outreach">Gmail Outreach</button>
+        <button class="secondary" type="button" data-qa-target="replies">Replies</button>
+        <button class="secondary" type="button" data-qa-target="followups">Follow-ups</button>
+      </div>
+      <div id="qa-checklist" class="table-wrap"></div>
+    </section>
+
+    <section class="panel" data-workspace-panel="contact-finder">
+      <div class="panel-header">
+        <h2>Create Contact</h2>
+      </div>
+      <form id="lead-form" class="form-grid">
+        <label>
+          Email
+          <input name="email" type="email" placeholder="Optional">
+        </label>
+        <label>
+          Contact or team name
+          <input name="first_name" type="text" value="Hiring Team" required>
+        </label>
+        <label>
+          Person last name
+          <input name="last_name" type="text" placeholder="Optional">
+        </label>
+        <label>
+          Company
+          <input name="company" type="text" placeholder="Company name">
+        </label>
+        <label>
+          Role or job
+          <input name="title" type="text" placeholder="Software Engineer, AI Engineer, Backend Developer">
+        </label>
+        <label>
+          Source
+          <input name="source" type="text" value="manual_job_target">
+        </label>
+        <label>
+          Priority
+          <select name="lead_grade">
+            <option value="High Priority">High Priority</option>
+            <option value="Medium Priority">Medium Priority</option>
+            <option value="Low Priority">Low Priority</option>
+            <option value="Archive">Archive</option>
+          </select>
+        </label>
+        <label>
+          Outreach status
+          <select name="outreach_status">
+            <option value="DISCOVERED">DISCOVERED</option>
+            <option value="ANALYZED">ANALYZED</option>
+            <option value="COMPANY_RESEARCHED">COMPANY_RESEARCHED</option>
+            <option value="CONTACT_FOUND">CONTACT_FOUND</option>
+            <option value="DRAFTED">DRAFTED</option>
+            <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
+            <option value="APPROVED">APPROVED</option>
+            <option value="SENT">SENT</option>
+            <option value="REPLIED">REPLIED</option>
+            <option value="FOLLOW_UP_DUE">FOLLOW_UP_DUE</option>
+            <option value="CLOSED">CLOSED</option>
+          </select>
+        </label>
+        <label class="full">
+          Job or profile URL
+          <input name="linkedin_url" type="url" placeholder="LinkedIn profile, company careers page, or job posting">
+        </label>
+        <label class="full">
+          Notes
+          <textarea name="notes" rows="3" placeholder="Why this company or role is interesting, what you want to learn, and any personalization notes."></textarea>
+        </label>
+        <button type="submit">Create Contact</button>
+      </form>
+    </section>
+
+    <section class="panel" data-workspace-panel="dashboard">
+      <div class="panel-header">
+        <h2>Create Campaign</h2>
+      </div>
+      <form id="campaign-form" class="form-grid">
+        <label>
+          Name
+          <input name="name" type="text" value="Tech Opportunity Outreach" required>
+        </label>
+        <label>
+          Module
+          <input name="module" type="text" value="Job Search">
+        </label>
+        <label class="full">
+          Objective
+          <textarea name="objective" rows="4" required>Build warm conversations with recruiters, hiring managers, and tech leaders for roles I am actively interested in, while keeping every message human-approved.</textarea>
+        </label>
+        <button type="submit">Create Campaign</button>
+      </form>
+    </section>
+
+    <section id="job-discovery-section" class="panel wide" data-workspace-panel="job-discovery">
+      <div class="panel-header">
+        <div>
+          <h2>Paste Job URL</h2>
+          <p class="muted compact-copy">Fast import for LinkedIn, Indeed, Glassdoor, company careers pages, and ATS links. Public pages can be read automatically; restricted sites are saved without scraping.</p>
+        </div>
+      </div>
+      <form id="job-url-import-form" class="form-grid">
+        <label class="full">
+          Job URL
+          <input name="source_url" type="url" placeholder="Paste LinkedIn, Indeed, company careers, Greenhouse, Lever, Ashby, or Workday URL" required>
+        </label>
+        <label>
+          Source
+          <select name="source_hint">
+            <option value="AUTO" selected>Auto-detect</option>
+            <option value="LINKEDIN">LinkedIn</option>
+            <option value="INDEED">Indeed</option>
+            <option value="GLASSDOOR">Glassdoor</option>
+            <option value="GREENHOUSE">Greenhouse</option>
+            <option value="LEVER">Lever</option>
+            <option value="ASHBY">Ashby</option>
+            <option value="WORKDAY">Workday</option>
+            <option value="PUBLIC_JOB_URL">Company / public page</option>
+          </select>
+        </label>
+        <label>
+          Contact email if listed
+          <input name="contact_email" type="email" placeholder="Optional">
+        </label>
+        <label>
+          Company if visible
+          <input name="company_name" type="text" placeholder="Optional for LinkedIn/Indeed">
+        </label>
+        <label>
+          Job title if visible
+          <input name="job_title" type="text" placeholder="Optional for LinkedIn/Indeed">
+        </label>
+        <label>
+          Location if visible
+          <input name="location" type="text" placeholder="Remote Canada, Toronto, Vancouver">
+        </label>
+        <label class="full">
+          Pasted job description
+          <textarea name="pasted_description" rows="7" placeholder="Optional for public pages. Recommended for LinkedIn, Indeed, and Glassdoor because the app saves those URLs without scraping."></textarea>
+        </label>
+        <label>
+          Recruiter / contact profile URL
+          <input name="recruiter_profile_url" type="url" placeholder="Optional LinkedIn/contact URL">
+        </label>
+        <label>
+          Recruiter / contact name
+          <input name="recruiter_name" type="text" placeholder="Optional">
+        </label>
+        <label class="full">
+          Notes
+          <textarea name="notes" rows="2" placeholder="Why this role matters, application status, referral details, or personalization clues."></textarea>
+        </label>
+        <label class="inline-option">
+          <input name="import_result" type="checkbox" checked>
+          Save into Opportunities
+        </label>
+        <button type="submit">Import URL Into Opportunities</button>
+      </form>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="job-discovery">
+      <div class="panel-header">
+        <h2>Automated Job Search</h2>
+      </div>
+      <form id="job-search-form" class="form-grid">
+        <label class="full">
+          Target roles
+          <textarea name="target_roles" rows="4">Junior AI Engineer
+AI Engineer
+Backend Developer
+Software Developer
+Web Developer
+Full Stack Developer
+Frontend Developer
+Python Developer
+Junior Developer
+IT Support
+QA Analyst
+Automation Developer</textarea>
+        </label>
+        <label>
+          Target locations
+          <textarea name="target_locations" rows="5">Canada
+Remote Canada
+Vancouver, BC
+British Columbia
+Alberta
+Calgary
+Edmonton
+Saskatchewan
+Saskatoon
+Regina
+Ontario
+Toronto
+Ottawa
+Quebec
+Montreal
+Manitoba
+Winnipeg
+Nova Scotia
+Halifax</textarea>
+        </label>
+        <label>
+          Target skills
+          <textarea name="target_skills" rows="5">Python
+FastAPI
+React
+JavaScript
+TypeScript
+Node.js
+SQL
+PostgreSQL
+REST API
+HTML
+CSS
+LLM
+AI
+Automation
+Git
+Docker
+Cloud
+GCP</textarea>
+        </label>
+        <label>
+          Sources
+          <textarea name="sources" rows="3">remotive
+remoteok</textarea>
+        </label>
+        <label>
+          Max jobs per source
+          <input name="max_jobs_per_source" type="number" min="1" max="100" value="20">
+        </label>
+        <label>
+          Posted within
+          <select name="posted_within_days">
+            <option value="3">Last 3 days</option>
+            <option value="7">Last 7 days</option>
+            <option value="14" selected>Last 14 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="60">Last 60 days</option>
+          </select>
+        </label>
+        <label class="inline-option">
+          <input name="import_results" type="checkbox" checked>
+          Import matches into pipeline
+        </label>
+        <button type="submit">Search Latest Jobs</button>
+      </form>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="settings">
+      <div class="panel-header">
+        <div>
+          <h2>System Readiness & Safety</h2>
+          <p class="muted compact-copy">Non-secret setup state for local testing and Cloud Run deployment.</p>
+        </div>
+        <span id="settings-status" class="status-pill">Checking</span>
+      </div>
+      <div id="settings-readiness-summary" class="summary-grid"></div>
+      <div id="settings-safety-summary" class="summary-grid"></div>
+      <div class="section-actions">
+        <button id="settings-refresh" class="secondary" type="button">Refresh Readiness</button>
+        <button id="connect-gmail" type="button">Connect Gmail OAuth</button>
+      </div>
+      <div id="deployment-checklist" class="checklist-grid"></div>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="settings">
+      <div class="panel-header">
+        <div>
+          <h2>Profile & Job Preferences</h2>
+          <p class="muted compact-copy">This profile drives fit scoring, application tracking, and draft context.</p>
+        </div>
+      </div>
+      <div id="profile-summary" class="summary-grid"></div>
+      <form id="profile-form" class="form-grid">
+        <label>
+          Name
+          <input name="owner_name" type="text" placeholder="Prakriti Dhital">
+        </label>
+        <label>
+          Primary email
+          <input name="primary_email" type="email" placeholder="prakriti.dhital.tech@gmail.com">
+        </label>
+        <label>
+          Outreach email
+          <input name="outreach_email" type="email" placeholder="prakriti.dhital.tech@gmail.com">
+        </label>
+        <label>
+          Default resume version
+          <input name="default_resume_version" type="text" placeholder="Resume - Tech Opportunities">
+        </label>
+        <label class="full">
+          Target roles
+          <textarea name="target_roles" rows="4" placeholder="Junior AI Engineer&#10;Backend Developer&#10;Software Developer"></textarea>
+        </label>
+        <label>
+          Target locations
+          <textarea name="target_locations" rows="5" placeholder="Canada&#10;Remote Canada&#10;Vancouver&#10;Alberta"></textarea>
+        </label>
+        <label>
+          Target skills
+          <textarea name="target_skills" rows="5" placeholder="Python&#10;FastAPI&#10;React&#10;SQL"></textarea>
+        </label>
+        <label>
+          LinkedIn profile URL
+          <input name="linkedin_profile_url" type="url" placeholder="https://www.linkedin.com/in/...">
+        </label>
+        <label>
+          GitHub URL
+          <input name="github_url" type="url" placeholder="https://github.com/...">
+        </label>
+        <label class="full">
+          Portfolio URL
+          <input name="portfolio_url" type="url" placeholder="https://...">
+        </label>
+        <label class="full">
+          Resume / profile summary
+          <textarea name="resume_summary" rows="4" placeholder="Short profile summary used later for fit analysis and outreach drafts."></textarea>
+        </label>
+        <button type="submit">Save Profile Settings</button>
+      </form>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="settings">
+      <div class="panel-header">
+        <h2>Source Coverage</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Source</th>
+              <th>Status</th>
+              <th>Best Use</th>
+              <th>Requirement</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Remotive</td>
+              <td><span class="badge sent">Connected</span></td>
+              <td>Remote technical roles</td>
+              <td>No key</td>
+            </tr>
+            <tr>
+              <td>RemoteOK</td>
+              <td><span class="badge sent">Connected</span></td>
+              <td>Remote technical roles</td>
+              <td>No key</td>
+            </tr>
+            <tr>
+              <td>Adzuna Canada</td>
+              <td><span class="badge pending_approval">Optional</span></td>
+              <td>Canada job-board coverage</td>
+              <td>API app id/key</td>
+            </tr>
+            <tr>
+              <td>Company career pages</td>
+              <td><span class="badge sent">Connected</span></td>
+              <td>Greenhouse, Lever, Ashby, public career pages</td>
+              <td>Public URL</td>
+            </tr>
+            <tr>
+              <td>Indeed / Glassdoor</td>
+              <td><span class="badge rejected">API required</span></td>
+              <td>Use approved provider export, partner API, or pasted job URL</td>
+              <td>Approved access</td>
+            </tr>
+            <tr>
+              <td>Canada Job Bank</td>
+              <td><span class="badge pending_approval">Adapter planned</span></td>
+              <td>Canada-specific roles and alerts</td>
+              <td>Approved feed/export or URL source</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="linkedin-tracker">
+      <div class="panel-header">
+        <div>
+          <h2>LinkedIn Tracker</h2>
+          <p class="muted compact-copy">Manual-safe tracking only. Paste a job URL and description; the app will not scrape LinkedIn or send LinkedIn messages.</p>
+        </div>
+      </div>
+      <form id="linkedin-import-form" class="form-grid">
+        <label class="full">
+          LinkedIn job URL
+          <input name="source_url" type="url" placeholder="https://www.linkedin.com/jobs/view/...">
+        </label>
+        <label>
+          Company if visible
+          <input name="company_name" type="text" placeholder="Optional if you only have the URL">
+        </label>
+        <label>
+          Job title if visible
+          <input name="job_title" type="text" placeholder="Optional if you only have the URL">
+        </label>
+        <label>
+          Location
+          <input name="location" type="text" placeholder="Canada, Remote Canada, Vancouver">
+        </label>
+        <label>
+          Required skills
+          <textarea name="required_skills" rows="4" placeholder="Python&#10;FastAPI&#10;React"></textarea>
+        </label>
+        <label class="full">
+          Pasted job description
+          <textarea name="description" rows="7" placeholder="Paste the LinkedIn job description. The app analyzes only what you paste."></textarea>
+        </label>
+        <label>
+          Recruiter / hiring manager profile URL
+          <input name="recruiter_profile_url" type="url" placeholder="https://www.linkedin.com/in/...">
+        </label>
+        <label>
+          Recruiter / hiring manager name
+          <input name="recruiter_name" type="text" placeholder="Optional">
+        </label>
+        <label class="full">
+          Notes
+          <textarea name="notes" rows="3" placeholder="Why this role is interesting, referral notes, or personalization clues."></textarea>
+        </label>
+        <button type="submit">Import LinkedIn Opportunity</button>
+      </form>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="indeed-tracker">
+      <div class="panel-header">
+        <div>
+          <h2>Indeed Tracker</h2>
+          <p class="muted compact-copy">Use this for jobs you found on Indeed. Paste the URL and description when available; no unsupported scraping is performed.</p>
+        </div>
+      </div>
+      <form id="indeed-import-form" class="form-grid">
+        <label class="full">
+          Indeed job URL
+          <input name="source_url" type="url" placeholder="https://ca.indeed.com/viewjob?...">
+        </label>
+        <label>
+          Company if visible
+          <input name="company_name" type="text" placeholder="Optional if you only have the URL">
+        </label>
+        <label>
+          Job title if visible
+          <input name="job_title" type="text" placeholder="Optional if you only have the URL">
+        </label>
+        <label>
+          Location
+          <input name="location" type="text" placeholder="Canada, Remote Canada, Alberta">
+        </label>
+        <label>
+          Required skills
+          <textarea name="required_skills" rows="4" placeholder="Python&#10;SQL&#10;JavaScript"></textarea>
+        </label>
+        <label class="full">
+          Pasted job description
+          <textarea name="description" rows="7" placeholder="Paste the Indeed job description. The app analyzes only what you paste."></textarea>
+        </label>
+        <label>
+          Contact email if listed
+          <input name="contact_email" type="email" placeholder="Optional">
+        </label>
+        <label class="full">
+          Notes
+          <textarea name="notes" rows="3" placeholder="Why this role is worth tracking or outreach."></textarea>
+        </label>
+        <button type="submit">Import Indeed Opportunity</button>
+      </form>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="indeed-tracker">
+      <div class="panel-header">
+        <h2>Indeed CSV Import</h2>
+      </div>
+      <form id="indeed-csv-form" class="form-grid">
+        <label class="full">
+          CSV rows
+          <textarea name="csv_rows" rows="7" placeholder="source_url,company_name,job_title,location,description,required_skills,contact_email,notes"></textarea>
+        </label>
+        <button class="secondary" type="button" data-action="fill-indeed-template">Fill Indeed CSV Template</button>
+        <button type="submit">Import Indeed CSV</button>
+      </form>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="job-discovery">
+      <div class="panel-header">
+        <div>
+          <h2>Saved Company Career Sources</h2>
+          <p class="muted compact-copy">Optional. Save companies only when you want to rescan their career pages repeatedly.</p>
+        </div>
+        <span id="career-source-count" class="count">0</span>
+      </div>
+      <form id="career-source-form" class="form-grid">
+        <label>
+          Company
+          <input name="company_name" type="text" placeholder="Shopify, TELUS, RBC, Clio" required>
+        </label>
+        <label>
+          Source type
+          <select name="source_type">
+            <option value="company_careers">Company careers page</option>
+            <option value="greenhouse">Greenhouse board</option>
+            <option value="lever">Lever board</option>
+            <option value="ashby">Ashby board</option>
+            <option value="workday">Workday careers page</option>
+            <option value="other_public_board">Other public board</option>
+          </select>
+        </label>
+        <label class="full">
+          Careers URL
+          <input name="careers_url" type="url" placeholder="https://company.com/careers or https://boards.greenhouse.io/company" required>
+        </label>
+        <label class="full">
+          Notes
+          <textarea name="notes" rows="2" placeholder="Why this company is interesting or what roles to watch for."></textarea>
+        </label>
+        <button type="submit">Save Career Source</button>
+        <button id="scan-career-sources" class="secondary" type="button">Scan Saved Active Sources</button>
+      </form>
+      <div id="career-sources-list" class="table-wrap"></div>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="job-discovery">
+      <div class="panel-header">
+        <h2>Company Careers URL Discovery</h2>
+      </div>
+      <form id="job-source-discovery-form" class="form-grid">
+        <label class="full">
+          Target roles
+          <textarea name="target_roles" rows="4">Junior AI Engineer
+AI Engineer
+Backend Developer
+Software Developer
+Web Developer
+Full Stack Developer
+Frontend Developer
+Python Developer
+Junior Developer
+IT Support
+QA Analyst
+Automation Developer</textarea>
+        </label>
+        <label>
+          Target locations
+          <textarea name="target_locations" rows="5">Canada
+Remote Canada
+Vancouver, BC
+British Columbia
+Alberta
+Calgary
+Edmonton
+Saskatchewan
+Saskatoon
+Regina
+Ontario
+Toronto
+Ottawa
+Quebec
+Montreal
+Manitoba
+Winnipeg
+Nova Scotia
+Halifax</textarea>
+        </label>
+        <label>
+          Target skills
+          <textarea name="target_skills" rows="5">Python
+FastAPI
+React
+JavaScript
+TypeScript
+Node.js
+SQL
+PostgreSQL
+REST API
+HTML
+CSS
+LLM
+AI
+Automation
+Git
+Docker
+Cloud
+GCP</textarea>
+        </label>
+        <label class="full">
+          One-off source URLs
+          <textarea name="source_urls" rows="5" required placeholder="https://company.com/careers&#10;https://boards.greenhouse.io/company&#10;https://jobs.lever.co/company&#10;https://company.ashbyhq.com"></textarea>
+        </label>
+        <label class="inline-option">
+          <input name="import_results" type="checkbox" checked>
+          Import matches into pipeline
+        </label>
+        <button type="submit">Scan One-Off Career URLs</button>
+      </form>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="job-discovery">
+      <div class="panel-header">
+        <div>
+          <h2>Quick Job Import</h2>
+          <p class="muted compact-copy">Use this when you already have one posting URL. The app will score it and move it into Opportunities.</p>
+        </div>
+      </div>
+      <form id="quick-job-import-form" class="form-grid">
+        <label>
+          Company
+          <input name="company" type="text" placeholder="Company name" required>
+        </label>
+        <label>
+          Job title
+          <input name="title" type="text" placeholder="Junior Software Developer" required>
+        </label>
+        <label>
+          Location
+          <input name="location" type="text" placeholder="Canada, Remote, Vancouver, Calgary">
+        </label>
+        <label>
+          Job URL
+          <input name="url" type="url" placeholder="https://company.com/jobs/...">
+        </label>
+        <label class="full">
+          Job description
+          <textarea name="description" rows="5" placeholder="Paste the job description here if the source does not provide enough detail."></textarea>
+        </label>
+        <label>
+          Skills from posting
+          <textarea name="required_skills" rows="3" placeholder="Python&#10;FastAPI&#10;React"></textarea>
+        </label>
+        <label>
+          Contact email if visible
+          <input name="contact_email" type="email" placeholder="careers@company.com">
+        </label>
+        <label class="full">
+          Notes
+          <textarea name="notes" rows="3" placeholder="Why this role is interesting, application notes, recruiter info, or anything personal to include later."></textarea>
+        </label>
+        <button type="submit">Import One Job</button>
+      </form>
+    </section>
+
+    <section class="panel wide muted-panel" data-workspace-panel="job-discovery">
+      <div class="panel-header">
+        <div>
+          <h2>Advanced Bulk Job Rows</h2>
+          <p class="muted compact-copy">Use this only for pasted/exported rows. For normal use, automated search, career URL scan, or Quick Job Import is easier.</p>
+        </div>
+      </div>
+      <form id="job-discovery-form" class="form-grid">
+        <label class="full">
+          Target roles
+          <textarea name="target_roles" rows="4">Junior AI Engineer
+AI Engineer
+Backend Developer
+Software Developer
+Web Developer
+Full Stack Developer
+Frontend Developer
+Python Developer
+Junior Developer
+IT Support
+QA Analyst
+Automation Developer</textarea>
+        </label>
+        <label>
+          Target locations
+          <textarea name="target_locations" rows="5">Canada
+Remote Canada
+Vancouver, BC
+British Columbia
+Alberta
+Calgary
+Edmonton
+Saskatchewan
+Saskatoon
+Regina
+Ontario
+Toronto
+Ottawa
+Quebec
+Montreal
+Manitoba
+Winnipeg
+Nova Scotia
+Halifax</textarea>
+        </label>
+        <label>
+          Target skills
+          <textarea name="target_skills" rows="5">Python
+FastAPI
+React
+JavaScript
+TypeScript
+Node.js
+SQL
+PostgreSQL
+REST API
+HTML
+CSS
+LLM
+AI
+Automation
+Git
+Docker
+Cloud
+GCP</textarea>
+        </label>
+        <label class="full">
+          Job rows
+          <textarea name="job_rows" rows="7" placeholder="company|title|location|url|description|company_summary|tech_stack|role_fit|source_links|contact_email|contact_name|contact_url|source"></textarea>
+        </label>
+        <button class="secondary" type="button" data-action="fill-job-template">Fill Job Template</button>
+        <button type="submit">Import Discovered Jobs</button>
+      </form>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="contact-finder">
+      <div class="panel-header">
+        <h2>Batch Import Contacts</h2>
+      </div>
+      <form id="batch-lead-form" class="form-grid">
+        <label class="full">
+          CSV rows
+          <textarea name="csv" rows="6" placeholder="email,first_name,last_name,company,title,source,lead_grade,outreach_status,linkedin_url,notes"></textarea>
+        </label>
+        <button class="secondary" type="button" data-action="fill-contact-template">Fill CSV Template</button>
+        <button type="submit">Import CSV Contacts</button>
+      </form>
+    </section>
+
+    <section id="opportunities-section" class="panel wide" data-workspace-panel="opportunities">
+      <div class="panel-header">
+        <h2>Opportunities</h2>
+        <span id="lead-count" class="count">0</span>
+      </div>
+      <div id="queue-summary" class="summary-grid"></div>
+      <div class="queue-toolbar">
+        <label>
+          Safe batch limit
+          <input id="pipeline-batch-limit" type="number" min="1" max="25" value="5">
+        </label>
+        <p class="muted compact-copy">
+          Advances discovered, analyzed, and company-researched opportunities. Does not generate drafts, approve, or send.
+        </p>
+        <button id="run-pipeline-batch" type="button">Run Safe Pipeline Batch</button>
+      </div>
+      <div class="queue-toolbar">
+        <label>
+          Outreach
+          <select id="lead-outreach-filter">
+            <option value="">All statuses</option>
+            <option value="DISCOVERED">DISCOVERED</option>
+            <option value="ANALYZED">ANALYZED</option>
+            <option value="COMPANY_RESEARCHED">COMPANY_RESEARCHED</option>
+            <option value="CONTACT_FOUND">CONTACT_FOUND</option>
+            <option value="DRAFTED">DRAFTED</option>
+            <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
+            <option value="APPROVED">APPROVED</option>
+            <option value="SENT">SENT</option>
+            <option value="REPLIED">REPLIED</option>
+            <option value="FOLLOW_UP_DUE">FOLLOW_UP_DUE</option>
+            <option value="CLOSED">CLOSED</option>
+          </select>
+        </label>
+        <label>
+          Priority
+          <select id="lead-grade-filter">
+            <option value="">All priorities</option>
+            <option value="High Priority">High Priority</option>
+            <option value="Medium Priority">Medium Priority</option>
+            <option value="Low Priority">Low Priority</option>
+            <option value="Archive">Archive</option>
+          </select>
+        </label>
+        <label>
+          Search
+          <input id="lead-search" type="search" placeholder="Name, company, role">
+        </label>
+        <button id="clear-lead-filters" class="secondary" type="button">Clear</button>
+      </div>
+      <div id="leads-list" class="table-wrap"></div>
+      <div id="opportunity-detail" class="detail-panel"></div>
+    </section>
+
+    <section id="applications-section" class="panel wide" data-workspace-panel="applications">
+      <div class="panel-header">
+        <h2>Applications</h2>
+        <span id="application-count" class="count">0</span>
+      </div>
+      <div id="application-summary" class="summary-grid"></div>
+      <div class="application-toolbar">
+        <label>
+          Status
+          <select id="application-status-filter">
+            <option value="">All statuses</option>
+            <option value="SAVED">SAVED</option>
+            <option value="APPLIED">APPLIED</option>
+            <option value="CONTACT_SEARCH_NEEDED">CONTACT_SEARCH_NEEDED</option>
+            <option value="CONTACT_FOUND">CONTACT_FOUND</option>
+            <option value="OUTREACH_DRAFTED">OUTREACH_DRAFTED</option>
+            <option value="OUTREACH_APPROVED">OUTREACH_APPROVED</option>
+            <option value="OUTREACH_SENT">OUTREACH_SENT</option>
+            <option value="REPLIED">REPLIED</option>
+            <option value="INTERVIEW">INTERVIEW</option>
+            <option value="REJECTED">REJECTED</option>
+            <option value="FOLLOW_UP_DUE">FOLLOW_UP_DUE</option>
+            <option value="CLOSED">CLOSED</option>
+          </select>
+        </label>
+        <label>
+          Source
+          <select id="application-source-filter">
+            <option value="">All sources</option>
+          </select>
+        </label>
+        <label>
+          Search
+          <input id="application-search" type="search" placeholder="Company, role, source, notes">
+        </label>
+        <button id="clear-application-filters" class="secondary" type="button">Clear</button>
+      </div>
+      <div id="applications-list" class="table-wrap"></div>
+    </section>
+
+    <section class="panel wide" data-workspace-panel="applications">
+      <div class="panel-header">
+        <div>
+          <h2>Manual Application Entry</h2>
+          <p class="muted compact-copy">Use this only for applications that were not created from an Opportunity.</p>
+        </div>
+      </div>
+      <form id="application-form" class="form-grid">
+        <label>
+          Company
+          <input name="company_name" type="text" placeholder="Company name" required>
+        </label>
+        <label>
+          Job title
+          <input name="job_title" type="text" placeholder="Software Developer" required>
+        </label>
+        <label>
+          Source
+          <select name="source">
+            <option value="LinkedIn">LinkedIn</option>
+            <option value="Indeed">Indeed</option>
+            <option value="Company Site">Company Site</option>
+            <option value="Referral">Referral</option>
+            <option value="Other">Other</option>
+          </select>
+        </label>
+        <label>
+          Status
+          <select name="status">
+            <option value="SAVED">SAVED</option>
+            <option value="APPLIED">APPLIED</option>
+            <option value="CONTACT_SEARCH_NEEDED">CONTACT_SEARCH_NEEDED</option>
+            <option value="CONTACT_FOUND">CONTACT_FOUND</option>
+            <option value="OUTREACH_DRAFTED">OUTREACH_DRAFTED</option>
+            <option value="OUTREACH_APPROVED">OUTREACH_APPROVED</option>
+            <option value="OUTREACH_SENT">OUTREACH_SENT</option>
+            <option value="REPLIED">REPLIED</option>
+            <option value="INTERVIEW">INTERVIEW</option>
+            <option value="REJECTED">REJECTED</option>
+            <option value="FOLLOW_UP_DUE">FOLLOW_UP_DUE</option>
+            <option value="CLOSED">CLOSED</option>
+          </select>
+        </label>
+        <label>
+          Location
+          <input name="location" type="text" placeholder="Remote Canada, Vancouver, Calgary">
+        </label>
+        <label>
+          Applied date
+          <input name="applied_date" type="date">
+        </label>
+        <label class="full">
+          Job URL
+          <input name="job_url" type="url" placeholder="LinkedIn, Indeed, company careers page, or ATS link">
+        </label>
+        <label>
+          Resume version
+          <input name="resume_version" type="text" placeholder="Resume - AI Backend v1">
+        </label>
+        <label>
+          Cover letter version
+          <input name="cover_letter_version" type="text" placeholder="Optional">
+        </label>
+        <label>
+          Gmail thread ID
+          <input name="gmail_thread_id" type="text" placeholder="Optional">
+        </label>
+        <label class="inline-option">
+          <input name="contact_found" type="checkbox">
+          Contact found
+        </label>
+        <label class="full">
+          Notes
+          <textarea name="notes" rows="3" placeholder="Application notes, platform details, next step, or follow-up reminder."></textarea>
+        </label>
+        <button type="submit">Save Application</button>
+      </form>
+    </section>
+
+    <section id="company-research-section" class="panel wide" data-workspace-panel="company-research">
+      <div class="panel-header">
+        <h2>Company Research</h2>
+        <span id="company-research-count" class="count">0</span>
+      </div>
+      <div id="company-research-list" class="table-wrap"></div>
+    </section>
+
+    <section id="contacts-section" class="panel wide" data-workspace-panel="contact-finder">
+      <div class="panel-header">
+        <h2>Contacts</h2>
+        <span id="contact-count" class="count">0</span>
+      </div>
+      <div id="contacts-list" class="table-wrap"></div>
+    </section>
+
+    <section class="panel" data-workspace-panel="drafts">
+      <div class="panel-header">
+        <h2>Generate Draft</h2>
+      </div>
+      <form id="draft-form" class="form-grid">
+        <label>
+          Contact
+          <select name="lead_id" required></select>
+        </label>
+        <label>
+          Campaign
+          <select name="campaign_id"></select>
+        </label>
+        <label class="full">
+          Call to action
+          <input name="call_to_action" type="text" value="Open to a brief conversation next week?">
+        </label>
+        <label class="full">
+          Extra context
+          <textarea name="extra_context" rows="3">Use a warm, concise job-search networking tone.</textarea>
+        </label>
+        <button type="submit">Generate Draft</button>
+      </form>
+    </section>
+
+    <section class="panel" data-workspace-panel="replies">
+      <div class="panel-header">
+        <h2>Classify Reply</h2>
+      </div>
+      <form id="reply-form" class="form-grid">
+        <label>
+          Sent draft
+          <select name="draft_id" required></select>
+        </label>
+        <label>
+          From email
+          <input name="from_email" type="email" value="recruiter@example.com" required>
+        </label>
+        <label class="full">
+          Reply body
+          <textarea name="body" rows="4" required>This is interesting. Can we schedule a call?</textarea>
+        </label>
+        <button type="submit">Classify Reply</button>
+      </form>
+    </section>
+
+    <section id="drafts-section" class="panel wide" data-workspace-panel="drafts">
+      <div class="panel-header">
+        <div>
+          <h2>Draft Approval Queue</h2>
+          <p class="muted compact-copy">Approved drafts need a real public email before Gmail send/dry-run.</p>
+        </div>
+        <div class="section-actions">
+          <button id="find-draft-emails" class="secondary" type="button">Find Missing Emails</button>
+        </div>
+        <span id="draft-count" class="count">0</span>
+      </div>
+      <div id="drafts-list" class="draft-grid"></div>
+    </section>
+
+    <section id="sent-section" class="panel wide" data-workspace-panel="gmail-outreach">
+      <div class="panel-header">
+        <div>
+          <h2>Gmail Outreach</h2>
+          <p class="muted compact-copy">Approved messages only. Dry run stays on unless LIVE_SEND is enabled.</p>
+        </div>
+        <span id="sent-count" class="count">0</span>
+      </div>
+      <div id="sent-summary" class="summary-grid"></div>
+      <div id="sent-list" class="table-wrap"></div>
+    </section>
+
+    <section id="replies-section" class="panel wide" data-workspace-panel="replies">
+      <div class="panel-header">
+        <div>
+          <h2>Replies</h2>
+          <p class="muted compact-copy">Sync Gmail replies or classify a pasted reply for a sent draft.</p>
+        </div>
+        <span id="reply-count" class="count">0</span>
+      </div>
+      <div id="reply-summary" class="summary-grid"></div>
+      <div class="section-actions">
+        <button id="sync-email-replies" class="secondary" type="button">Sync Gmail Replies</button>
+      </div>
+      <div id="replies-list" class="table-wrap"></div>
+    </section>
+
+    <section id="followups-section" class="panel wide" data-workspace-panel="followups">
+      <div class="panel-header">
+        <div>
+          <h2>Follow-ups</h2>
+          <p class="muted compact-copy">Create follow-up drafts for sent outreach with no reply. Drafts still require review.</p>
+        </div>
+        <span id="followup-count" class="count">0</span>
+      </div>
+      <div id="followup-summary" class="summary-grid"></div>
+      <div class="followup-toolbar">
+        <label>
+          Days since sent
+          <input id="followup-days" type="number" min="0" max="90" value="3">
+          <small class="field-hint">Use 0 only for same-day local QA.</small>
+        </label>
+        <label>
+          Max drafts
+          <input id="followup-limit" type="number" min="1" max="200" value="10">
+        </label>
+        <label>
+          Call to action
+          <input id="followup-cta" type="text" value="Would it be worth a quick conversation this week?">
+        </label>
+        <button id="generate-followups" type="button">Generate Follow-up Drafts</button>
+      </div>
+      <div id="followup-list" class="table-wrap"></div>
+    </section>
+
+  </main>
+
+  <main id="audit-view" class="layout dashboard-view" hidden>
+    <section class="panel wide">
+      <div class="panel-header">
+        <div>
+          <h2>Audit History</h2>
+          <p class="muted compact-copy">
+            Full workflow trace for imports, drafts, approvals, rejections, sends, and reply classifications.
+          </p>
+        </div>
+        <span id="audit-count" class="count">0</span>
+      </div>
+      <div class="audit-toolbar">
+        <span id="audit-shown-count" class="muted">Showing recent activity</span>
+        <button id="audit-back" class="secondary" type="button">Back to Workbench</button>
+      </div>
+      <div id="audit-list" class="timeline audit-list"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+  <script src="./app.js?v=20260721-practical-gmail"></script>
+</body>
+</html>

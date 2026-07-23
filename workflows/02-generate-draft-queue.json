@@ -1,0 +1,77 @@
+{
+  "id": "generate-draft-queue",
+  "name": "02 - Generate Draft Queue",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "15 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "generate-drafts-02-trigger",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        260,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.API_BASE_URL || 'http://host.docker.internal:8000'}}/api/v1/automation/generate-drafts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Automation-Token",
+              "value": "={{$env.AUTOMATION_API_KEY || ''}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "{\"outreach_status\":\"Ready for Outreach\",\"lead_grades\":[\"High Priority\",\"Medium Priority\"],\"limit\":25}",
+        "options": {}
+      },
+      "id": "generate-drafts-02-request",
+      "name": "Call Email Automation API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Call Email Automation API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "timezone": "America/Los_Angeles",
+    "executionOrder": "v1"
+  },
+  "versionId": "22222222-2222-4222-8222-222222222222",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

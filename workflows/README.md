@@ -1,19 +1,24 @@
-# n8n Workflow Exports
+# n8n Workflows
 
-Store exported n8n workflow JSON files here for version control.
+These workflows call the FastAPI service. They are imported inactive so they cannot run accidentally.
 
-## Naming Convention
+| File | Schedule | Purpose |
+| --- | --- | --- |
+| 02-generate-draft-queue.json | Weekdays 7:15 AM | Generate QA-checked drafts for eligible contacts |
+| 03-email-reply-sync.json | Every 30 minutes | Read and classify Gmail replies |
+| 04-generate-followup-queue.json | Weekdays 9:00 AM | Create follow-up drafts for sent messages |
 
-- `01-lead-import.json` — CSV/Notion import → validate → enrich
-- `02-research-draft.json` — Research agent → Draft agent → QA → approval queue
-- `03-send-email.json` — Approved email → rate limit check → SES send
-- `04-follow-up.json` — Timer trigger → check replies → generate follow-up
-- `05-reply-handler.json` — IMAP poll → classify → update status → alerts
-- `06-bounce-handler.json` — SES webhook → add to DNC list
+## Required environment
 
-## How to Export
+- `API_BASE_URL`: defaults to `http://host.docker.internal:8000`
+- `AUTOMATION_API_KEY`: must match the backend value
 
-1. Open n8n UI
-2. Select workflow → Menu → Download
-3. Save JSON here with the naming convention above
-4. Commit to git
+## Import locally
+
+```powershell
+docker compose exec -T n8n n8n import:workflow --input=/workflows/02-generate-draft-queue.json
+docker compose exec -T n8n n8n import:workflow --input=/workflows/03-email-reply-sync.json
+docker compose exec -T n8n n8n import:workflow --input=/workflows/04-generate-followup-queue.json
+```
+
+Review credentials and test each workflow manually before activation. Keep `EMAIL_SENDING_ENABLED=false` until Gmail OAuth and human approval behavior have been verified.
