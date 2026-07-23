@@ -126,32 +126,8 @@ services:
       redis:
         condition: service_healthy
 
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    profiles: ["proxy"]
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      CADDY_EMAIL: ${CADDY_EMAIL:-admin@example.com}
-      API_DOMAIN: ${API_DOMAIN:-api.localhost}
-      APP_DOMAIN: ${APP_DOMAIN:-app.localhost}
-      N8N_DOMAIN: ${N8N_DOMAIN:-n8n.localhost}
-    volumes:
-      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - backend
-      - dashboard
-      - n8n
-
 volumes:
   pgdata:
   redis-data:
   qdrant-data:
   n8n-data:
-  caddy-data:
-  caddy-config:

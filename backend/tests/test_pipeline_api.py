@@ -551,6 +551,7 @@ def test_research_company_route_saves_enriched_agent_result(monkeypatch) -> None
 
 def test_contact_finder_skips_platform_urls_and_expands_company_sources() -> None:
     urls = ContactFinderService._seed_urls(
+        None,
         "https://www.linkedin.com/jobs/view/123",
         "https://company.example/careers\nhttps://ca.indeed.com/viewjob?jk=123",
     )
@@ -580,6 +581,7 @@ def test_contact_finder_reads_mailto_and_prioritizes_recruiting_emails() -> None
         "https://signal.dev/careers",
         parser,
         "Contact our team at hello@signal.dev",
+        None,
     )
 
     assert candidate.contact_email == "talent@signal.dev"
