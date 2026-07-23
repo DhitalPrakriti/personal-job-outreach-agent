@@ -129,7 +129,6 @@ Supporting local services:
 - Qdrant: available for future retrieval and memory features
 - LiteLLM: model aliases, routing, budgets, and provider abstraction
 - n8n: scheduled workflow runner; business rules stay in FastAPI
-- Caddy: optional production TLS/reverse proxy profile
 
 ## Safety Defaults
 
