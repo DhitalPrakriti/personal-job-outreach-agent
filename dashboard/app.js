@@ -637,13 +637,21 @@ function careerSourceScanPayload(sourceIds = []) {
   };
 }
 
-function showToast(message) {
-  elements.toast.textContent = message;
+function showToast(message, type = "info") {
+  const icons = { success: "✓", error: "✕", info: "ℹ" };
+  const icon = icons[type] || icons.info;
+  elements.toast.className = `toast toast-${type}`;
+  elements.toast.innerHTML = `<span class="toast-icon" aria-hidden="true">${icon}</span><span class="toast-message"></span>`;
+  elements.toast.querySelector(".toast-message").textContent = message;
   elements.toast.hidden = false;
   window.clearTimeout(showToast.timeout);
   showToast.timeout = window.setTimeout(() => {
     elements.toast.hidden = true;
-  }, 3200);
+  }, type === "error" ? 5200 : 3200);
+}
+
+function confirmAction(message) {
+  return window.confirm(message);
 }
 
 async function withButtonState(button, workingLabel, doneLabel, action) {
@@ -970,6 +978,7 @@ function renderReadiness() {
   const checks = [
     ["Database", readiness.database.connected, "Connected", "Unavailable"],
     ["AI drafting", readiness.ai.enabled, "Enabled", "Fallback mode"],
+    ["LLM provider key", readiness.ai?.provider_key_configured, "Configured", "Not set"],
     [
       `Email: ${readiness.email?.provider || "provider"}`,
       readiness.email?.configured,
@@ -1031,12 +1040,17 @@ function renderSettingsOverview() {
   if (elements.settingsReadinessSummary) {
     const sender = readiness.email?.sender_email || readiness.gmail?.sender_email || "Not set";
     const inbox = readiness.email?.inbox_email || readiness.gmail?.inbox_email || sender;
+    const primaryModel = readiness.ai?.primary_model || "not set";
+    const fastModel = readiness.ai?.fast_model || "not set";
     const cards = [
       ["Database", readiness.database?.connected ? "Connected" : "Unavailable", "Required for pipeline state", readiness.database?.connected],
       ["Gmail OAuth", readiness.gmail?.refresh_token_configured ? "Connected" : "Needs OAuth", "Required for Gmail send/reply sync", readiness.gmail?.refresh_token_configured],
       ["Sender", sender, "Configured sender identity", Boolean(readiness.email?.sender_email || readiness.gmail?.sender_email)],
       ["Inbox", inbox || "Not set", "Reply sync mailbox", Boolean(inbox)],
-      ["AI Drafting", readiness.ai?.enabled ? "Enabled" : "Fallback", "LLM can be added later when you approve", true],
+      ["AI Drafting", readiness.ai?.enabled ? "Enabled" : "Fallback", "Set AI_DRAFTING_ENABLED=true to use the LLM", readiness.ai?.enabled],
+      ["LLM Provider Key", readiness.ai?.provider_key_configured ? "Configured" : "Not set", "ANTHROPIC_API_KEY behind LiteLLM", readiness.ai?.provider_key_configured],
+      ["LiteLLM Proxy", readiness.ai?.litellm_configured ? "Configured" : "Not set", "Model routing and budgets", readiness.ai?.litellm_configured],
+      ["Models", `${primaryModel} / ${fastModel}`, "Primary / fast model aliases", Boolean(readiness.ai?.primary_model)],
       ["Automation Token", readiness.automation?.token_required ? "Required" : "Local open", "Protects machine-triggered routes", true],
     ];
     elements.settingsReadinessSummary.innerHTML = cards.map(([label, value, detail, enabled]) => (
@@ -1774,21 +1788,27 @@ function renderDrafts() {
     const leadSuggestedMessage = lead?.suggested_first_message
       ? `<details class="source-message"><summary>Original source note</summary><pre>${escapeHtml(lead.suggested_first_message)}</pre></details>`
       : "";
+    const bodyChars = (draft.body || "").length;
+    const subjectChars = (draft.subject || "").length;
     const bodyContent = draft.status === "pending_approval"
       ? `
         <label>
-          Subject
+          <span class="field-label-row">Subject <small class="char-count" data-char-count-for="subject" data-id="${escapeHtml(draft.id)}">${subjectChars} chars</small></span>
           <input data-draft-field="subject" data-id="${escapeHtml(draft.id)}" type="text" value="${escapeHtml(draft.subject)}">
         </label>
         <label>
-          Body
+          <span class="field-label-row">Body <small class="char-count" data-char-count-for="body" data-id="${escapeHtml(draft.id)}">${bodyChars} chars</small></span>
           <textarea data-draft-field="body" data-id="${escapeHtml(draft.id)}" rows="8">${escapeHtml(draft.body)}</textarea>
         </label>
+        <p class="muted unsaved-hint" data-unsaved-for="${escapeHtml(draft.id)}" hidden>Unsaved edits — click <strong>Save Edits</strong> before approving.</p>
       `
       : `
         <h3>${escapeHtml(draft.subject)}</h3>
         <pre>${escapeHtml(draft.body)}</pre>
       `;
+    const qaNotes = draft.qa_notes
+      ? `<details class="qa-notes"><summary>QA notes${draft.qa_status ? ` (${escapeHtml(draft.qa_status)})` : ""}</summary><pre>${escapeHtml(draft.qa_notes)}</pre></details>`
+      : "";
     let actions = `<p class="muted">No actions available for this status.</p>`;
     if (draft.status === "pending_approval") {
       actions = `
@@ -1825,6 +1845,7 @@ function renderDrafts() {
         </p>
         ${leadSuggestedMessage}
         ${bodyContent}
+        ${qaNotes}
         <p class="muted">${escapeHtml(draft.context_summary || "No context summary")}</p>
         <div class="card-actions">
           ${actions}
@@ -2261,7 +2282,7 @@ async function loadAll() {
     renderAll();
   } catch (error) {
     setApiStatus(false, "API unavailable");
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 }
 
@@ -2272,16 +2293,16 @@ elements.refreshAll.addEventListener("click", async (event) => {
     setApiStatus(true, "Local data refreshed");
   } catch (error) {
     setApiStatus(false, "Refresh failed");
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
 elements.settingsRefresh.addEventListener("click", async (event) => {
   try {
     await withButtonState(event.currentTarget, "Refreshing...", "Refreshed", loadAll);
-    showToast("Readiness refreshed");
+    showToast("Readiness refreshed", "success");
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2395,7 +2416,7 @@ elements.runPipelineBatch.addEventListener("click", async (event) => {
     showToast(`Pipeline batch: ${result.advanced} advanced, ${result.skipped} skipped, ${result.scanned} scanned`);
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2429,7 +2450,7 @@ elements.leadsList.addEventListener("click", async (event) => {
         showWorkspaceSection("drafts");
       }
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2444,10 +2465,10 @@ elements.leadsList.addEventListener("click", async (event) => {
           method: "DELETE",
         });
       });
-      showToast("Contact deleted");
+      showToast("Contact deleted", "success");
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2459,10 +2480,10 @@ elements.leadsList.addEventListener("click", async (event) => {
           method: "POST",
         });
       });
-      showToast("Company research updated");
+      showToast("Company research updated", "success");
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2477,7 +2498,7 @@ elements.leadsList.addEventListener("click", async (event) => {
       showToast(`Fit analyzed: ${result.fit_score}/100`);
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2495,7 +2516,7 @@ elements.leadsList.addEventListener("click", async (event) => {
       showToast(`${contactText} (${result.confidence_score}/100)`);
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2511,7 +2532,7 @@ elements.leadsList.addEventListener("click", async (event) => {
       showToast(`LinkedIn message generated (${result.character_count}/${result.max_character_count})`);
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2527,7 +2548,7 @@ elements.leadsList.addEventListener("click", async (event) => {
       await loadAll();
       showWorkspaceSection("applications");
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2545,10 +2566,10 @@ elements.leadsList.addEventListener("click", async (event) => {
         }),
       });
     });
-    showToast("Draft created from opportunity and contact context");
+    showToast("Draft created from opportunity and contact context", "success");
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2571,11 +2592,11 @@ elements.applicationForm.addEventListener("submit", async (event) => {
         body: JSON.stringify(payload),
       });
     });
-    showToast("Application saved");
+    showToast("Application saved", "success");
     form.reset();
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2591,10 +2612,10 @@ elements.profileForm.addEventListener("submit", async (event) => {
     });
     state.profile = profile;
     renderProfileSettings();
-    showToast("Profile settings saved");
+    showToast("Profile settings saved", "success");
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2613,7 +2634,7 @@ elements.careerSourceForm.addEventListener("submit", async (event) => {
     form.reset();
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2629,7 +2650,7 @@ elements.scanCareerSources.addEventListener("click", async (event) => {
     await loadAll();
     showWorkspaceSection("opportunities");
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2649,7 +2670,7 @@ elements.careerSourcesList.addEventListener("click", async (event) => {
       await loadAll();
       showWorkspaceSection("opportunities");
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2662,10 +2683,10 @@ elements.careerSourcesList.addEventListener("click", async (event) => {
           body: JSON.stringify({ active: button.dataset.active === "true" }),
         });
       });
-      showToast("Career source updated");
+      showToast("Career source updated", "success");
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2678,10 +2699,10 @@ elements.careerSourcesList.addEventListener("click", async (event) => {
         method: "DELETE",
       });
     });
-    showToast("Career source deleted");
+    showToast("Career source deleted", "success");
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2713,7 +2734,7 @@ elements.applicationsList.addEventListener("click", async (event) => {
       showToast(`Application status updated to ${updated.status}`);
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2726,10 +2747,10 @@ elements.applicationsList.addEventListener("click", async (event) => {
           method: "DELETE",
         });
       });
-      showToast("Application deleted");
+      showToast("Application deleted", "success");
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2747,7 +2768,7 @@ elements.applicationsList.addEventListener("click", async (event) => {
     showToast(`Application status updated to ${updated.status}`);
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2762,10 +2783,10 @@ elements.companyResearchList.addEventListener("click", async (event) => {
           method: "POST",
         });
       });
-      showToast("Company research updated");
+      showToast("Company research updated", "success");
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2780,7 +2801,7 @@ elements.companyResearchList.addEventListener("click", async (event) => {
       showToast(`Fit analyzed: ${result.fit_score}/100`);
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2796,7 +2817,7 @@ elements.companyResearchList.addEventListener("click", async (event) => {
       showToast(`LinkedIn message generated (${result.character_count}/${result.max_character_count})`);
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -2813,10 +2834,10 @@ elements.companyResearchList.addEventListener("click", async (event) => {
         }),
       });
     });
-    showToast("Draft created from company research");
+    showToast("Draft created from company research", "success");
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2831,10 +2852,10 @@ elements.leadForm.addEventListener("submit", async (event) => {
         body: JSON.stringify(removeEmptyValues(formToObject(form))),
       });
     });
-    showToast("Contact created");
+    showToast("Contact created", "success");
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2855,7 +2876,7 @@ elements.linkedinImportForm.addEventListener("submit", async (event) => {
     await loadAll();
     showWorkspaceSection("opportunities");
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2876,7 +2897,7 @@ elements.indeedImportForm.addEventListener("submit", async (event) => {
     await loadAll();
     showWorkspaceSection("opportunities");
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2896,7 +2917,7 @@ elements.indeedCsvForm.addEventListener("submit", async (event) => {
     await loadAll();
     showWorkspaceSection("opportunities");
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2927,7 +2948,7 @@ elements.jobUrlImportForm.addEventListener("submit", async (event) => {
     await loadAll();
     showWorkspaceSection("opportunities");
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2957,7 +2978,7 @@ elements.jobSearchForm.addEventListener("submit", async (event) => {
     );
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -2985,7 +3006,7 @@ elements.jobSourceDiscoveryForm.addEventListener("submit", async (event) => {
     );
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -3006,7 +3027,7 @@ elements.quickJobImportForm.addEventListener("submit", async (event) => {
     await loadAll();
     showWorkspaceSection("opportunities");
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -3030,7 +3051,7 @@ elements.jobDiscoveryForm.addEventListener("submit", async (event) => {
     showToast(`Job discovery: ${result.imported} imported, ${result.skipped} skipped`);
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -3056,7 +3077,7 @@ elements.batchLeadForm.addEventListener("submit", async (event) => {
     showToast(`${leads.length} contacts imported`);
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -3078,10 +3099,10 @@ elements.campaignForm.addEventListener("submit", async (event) => {
         body: JSON.stringify(removeEmptyValues(formToObject(event.currentTarget))),
       });
     });
-    showToast("Campaign created");
+    showToast("Campaign created", "success");
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -3095,10 +3116,10 @@ elements.draftForm.addEventListener("submit", async (event) => {
         body: JSON.stringify(removeEmptyValues(formToObject(event.currentTarget))),
       });
     });
-    showToast("Draft generated");
+    showToast("Draft generated", "success");
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -3112,10 +3133,10 @@ elements.replyForm.addEventListener("submit", async (event) => {
         body: JSON.stringify(removeEmptyValues(formToObject(event.currentTarget))),
       });
     });
-    showToast("Reply classified");
+    showToast("Reply classified", "success");
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -3127,7 +3148,7 @@ elements.syncEmailReplies.addEventListener("click", async (event) => {
     showToast(`Gmail sync: ${result.imported} imported, ${result.matched} matched, ${result.skipped} skipped`);
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -3146,10 +3167,10 @@ elements.sentList.addEventListener("click", async (event) => {
           }),
         });
       });
-      showToast("Send / dry-run completed. Check Replies next.");
+      showToast("Send / dry-run completed. Check Replies next.", "success");
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -3166,7 +3187,7 @@ elements.sentList.addEventListener("click", async (event) => {
       }
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -3213,7 +3234,7 @@ elements.generateFollowups.addEventListener("click", async (event) => {
       showWorkspaceSection("drafts");
     }
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 
@@ -3253,8 +3274,21 @@ elements.findDraftEmails.addEventListener("click", async (event) => {
     showToast(`Email search complete: ${emailsFound} emails found, ${sourcesFound} source pages saved, ${failed} failed.`);
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
+});
+
+elements.draftsList.addEventListener("input", (event) => {
+  const field = event.target.closest("[data-draft-field]");
+  if (!field) return;
+  const id = field.dataset.id;
+  const kind = field.dataset.draftField;
+  const counter = elements.draftsList.querySelector(
+    `[data-char-count-for="${kind}"][data-id="${CSS.escape(id)}"]`,
+  );
+  if (counter) counter.textContent = `${field.value.length} chars`;
+  const hint = elements.draftsList.querySelector(`[data-unsaved-for="${CSS.escape(id)}"]`);
+  if (hint) hint.hidden = false;
 });
 
 elements.draftsList.addEventListener("click", async (event) => {
@@ -3287,10 +3321,10 @@ elements.draftsList.addEventListener("click", async (event) => {
           }),
         });
       });
-      showToast("Contact email saved. Send / Dry Run is now available.");
+      showToast("Contact email saved. Send / Dry Run is now available.", "success");
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -3308,7 +3342,7 @@ elements.draftsList.addEventListener("click", async (event) => {
       }
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -3317,11 +3351,11 @@ elements.draftsList.addEventListener("click", async (event) => {
       await withButtonState(button, "Tracking...", "Tracked", async () => {
         await api(`/api/v1/leads/${button.dataset.leadId}/mark-applied`, { method: "POST" });
       });
-      showToast("Application marked applied. Gmail outreach is skipped until a real public email is found.");
+      showToast("Application marked applied. Gmail outreach is skipped until a real public email is found.", "success");
       await loadAll();
       showWorkspaceSection("applications");
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
@@ -3341,13 +3375,22 @@ elements.draftsList.addEventListener("click", async (event) => {
           }),
         });
       });
-      showToast("Draft edits saved");
+      showToast("Draft edits saved", "success");
       await loadAll();
     } catch (error) {
-      showToast(error.message);
+      showToast(error.message, "error");
     }
     return;
   }
+
+  const liveSend = Boolean(state.readiness?.email?.sending_enabled);
+  const confirmations = {
+    reject: "Reject this draft? It moves to the audit trail and leaves the approval queue.",
+    send: liveSend
+      ? "LIVE SENDING IS ENABLED. This will send a real email through Gmail. Continue?"
+      : "Live sending is off, so this runs as a dry run (no real email is sent). Continue?",
+  };
+  if (confirmations[action] && !confirmAction(confirmations[action])) return;
 
   const payloads = {
     approve: { reviewer: "Prakriti", note: "Approved from dashboard." },
@@ -3364,6 +3407,11 @@ elements.draftsList.addEventListener("click", async (event) => {
     reject: ["Rejecting...", "Rejected"],
     send: ["Sending...", "Send Complete"],
   };
+  const successMessages = {
+    approve: "Draft approved and ready for send / dry run",
+    reject: "Draft rejected and moved to the audit trail",
+    send: liveSend ? "Email sent through Gmail" : "Dry run completed (no real email sent)",
+  };
 
   try {
     await withButtonState(button, labels[action][0], labels[action][1], async () => {
@@ -3372,10 +3420,10 @@ elements.draftsList.addEventListener("click", async (event) => {
         body: JSON.stringify(payloads[action]),
       });
     });
-    showToast(`Draft ${action} completed`);
+    showToast(successMessages[action] || `Draft ${action} completed`, "success");
     await loadAll();
   } catch (error) {
-    showToast(error.message);
+    showToast(error.message, "error");
   }
 });
 

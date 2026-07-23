@@ -58,6 +58,8 @@ async def system_readiness() -> dict[str, object]:
             "enabled": settings.ai_drafting_enabled,
             "litellm_configured": bool(settings.litellm_base_url),
             "provider_key_configured": bool(settings.anthropic_api_key),
+            "primary_model": settings.primary_model,
+            "fast_model": settings.fast_model,
         },
         "email": {
             "provider": email_provider,

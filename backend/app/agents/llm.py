@@ -1,8 +1,9 @@
 """Shared LLM routing helpers for local agents."""
 
 DIRECT_MODEL_ALIASES = {
-    "claude-sonnet": "anthropic/claude-sonnet-4-20250514",
-    "claude-haiku": "anthropic/claude-3-5-haiku-20241022",
+    "claude-opus": "anthropic/claude-opus-4-8",
+    "claude-sonnet": "anthropic/claude-sonnet-5",
+    "claude-haiku": "anthropic/claude-haiku-4-5",
 }
 
 

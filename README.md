@@ -18,7 +18,7 @@ The product keeps automation useful without making it reckless: contacts are tra
 - Human approval and edit workflow before any email can be sent
 - Gmail OAuth setup for live send and reply sync
 - Reply classification into interested, interview, resume requested, not interested, out of office, bounce, unclear, neutral, and unsubscribe
-- n8n workflow automation for imports, draft queues, reply sync, and follow-up queues
+- Scheduled automation (Cloud Scheduler) for pipeline advancement, draft queues, reply sync, and follow-up queues
 - PostgreSQL-backed state and audit history for portfolio-grade traceability
 
 ## Target Workflow
@@ -113,29 +113,33 @@ The app starts with manual targets, job discovery rows, and CSV import so it sta
 Manual entry / CSV import / job discovery import
         |
         v
-n8n schedules ---> FastAPI orchestration ---> PostgreSQL audit/state
-                         |
-                         +--> Draft + QA agents --> LiteLLM --> model provider
-                         |
-                         +--> Human approval dashboard
-                         |
-                         +--> Gmail send + inbox sync
+Cloud Scheduler (cron) ---> FastAPI orchestration ---> PostgreSQL audit/state
+                                 |
+                                 +--> Draft + QA agents --> LiteLLM --> model provider
+                                 |
+                                 +--> Human approval dashboard
+                                 |
+                                 +--> Gmail send + inbox sync
 ```
 
-Supporting local services:
+All pipeline logic (API calls, conditions, AI drafting, data transformation,
+email) lives in the FastAPI backend. Cloud Scheduler only decides *when* each
+automation endpoint runs — there is no separate workflow engine.
+
+Supporting services:
 
 - PostgreSQL: durable contacts, campaigns, drafts, replies, audit events
 - Redis: LiteLLM cache and future queue/rate-limit work
 - Qdrant: available for future retrieval and memory features
 - LiteLLM: model aliases, routing, budgets, and provider abstraction
-- n8n: scheduled workflow runner; business rules stay in FastAPI
+- Cloud Scheduler (production): time-based triggers that POST to the automation endpoints
 
 ## Safety Defaults
 
 - Every email requires human approval.
 - `EMAIL_SENDING_ENABLED=false` performs a dry run instead of sending.
 - `EMAIL_REPLY_SYNC_ENABLED=false` prevents mailbox polling.
-- n8n workflows import as inactive.
+- Scheduled jobs only prepare drafts; nothing is sent without approval.
 
 ## Local Windows Setup
 
@@ -143,7 +147,7 @@ Supporting local services:
 cd C:\personal-outreach-agent
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-docker compose up -d postgres redis qdrant litellm n8n
+docker compose up -d postgres redis qdrant litellm
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
@@ -159,7 +163,6 @@ Open:
 - Dashboard: http://localhost:3000
 - API docs: http://localhost:8000/docs
 - Readiness: http://localhost:8000/api/v1/system/readiness
-- n8n: http://localhost:5678
 - LiteLLM: http://localhost:4000
 
 ## Gmail Setup
@@ -176,15 +179,18 @@ This project is designed around a personal outreach Gmail account.
 
 Live sending still requires `EMAIL_SENDING_ENABLED=true`. Keep it disabled while testing.
 
-## n8n Workflows
+## Scheduled Automation
 
-Version-controlled definitions are in `workflows/`:
+Production automation runs on Google Cloud Scheduler — time-based cron jobs that
+POST to the FastAPI automation endpoints. The scheduled jobs are:
 
-1. Draft queue generation
-2. Email reply synchronization
-3. Follow-up queue generation
+1. Pipeline advancement (`/pipeline/run-batch`)
+2. Draft queue generation (`/automation/generate-drafts`)
+3. Email reply synchronization (`/integrations/email/sync-replies`)
+4. Follow-up queue generation (`/automation/generate-followups`)
 
-See [workflows/README.md](workflows/README.md) for import commands.
+See [infra/scheduler/README.md](infra/scheduler/README.md) for the setup script
+and cadences. Locally, trigger the same endpoints by hand or from the dashboard.
 
 ## External Credentials Still Required
 

@@ -98,36 +98,7 @@ services:
     depends_on:
       - backend
 
-  # ─── n8n (Workflow Engine) ─────────────────────────────────
-  n8n:
-    image: n8nio/n8n:latest
-    restart: unless-stopped
-    ports:
-      - "${N8N_PORT:-5678}:5678"
-    environment:
-      N8N_BASIC_AUTH_ACTIVE: "true"
-      N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER:-admin}
-      N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD:-changeme}
-      DB_TYPE: postgresdb
-      DB_POSTGRESDB_HOST: postgres
-      DB_POSTGRESDB_PORT: 5432
-      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-email_agent}
-      DB_POSTGRESDB_USER: ${POSTGRES_USER:-agent}
-      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-      WEBHOOK_URL: ${N8N_WEBHOOK_URL:-http://localhost:5678}
-      API_BASE_URL: ${N8N_API_BASE_URL:-http://host.docker.internal:8000}
-      AUTOMATION_API_KEY: ${AUTOMATION_API_KEY:-}
-    volumes:
-      - n8n-data:/home/node/.n8n
-      - ./workflows:/workflows:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
 volumes:
   pgdata:
   redis-data:
   qdrant-data:
-  n8n-data:

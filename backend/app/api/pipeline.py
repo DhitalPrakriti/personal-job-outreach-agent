@@ -539,7 +539,7 @@ async def sync_outlook_replies(
     _: None = Depends(verify_automation_token),
     service: PipelineService = Depends(get_pipeline_service),
 ) -> ReplySyncResult:
-    """Compatibility alias for older local n8n workflow imports."""
+    """Compatibility alias for older automation trigger imports."""
     return await sync_email_replies(None, service)
 
 

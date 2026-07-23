@@ -9,15 +9,21 @@ model_list:
       model: ollama/qwen2.5:0.5b
       api_base: http://host.docker.internal:11434
 
+  - model_name: claude-opus
+    litellm_params:
+      model: anthropic/claude-opus-4-8
+      api_key: os.environ/ANTHROPIC_API_KEY
+      max_budget: 150.0  # USD per month
+
   - model_name: claude-sonnet
     litellm_params:
-      model: anthropic/claude-sonnet-4-20250514
+      model: anthropic/claude-sonnet-5
       api_key: os.environ/ANTHROPIC_API_KEY
       max_budget: 150.0  # USD per month
 
   - model_name: claude-haiku
     litellm_params:
-      model: anthropic/claude-3-5-haiku-20241022
+      model: anthropic/claude-haiku-4-5
       api_key: os.environ/ANTHROPIC_API_KEY
       max_budget: 50.0
 
