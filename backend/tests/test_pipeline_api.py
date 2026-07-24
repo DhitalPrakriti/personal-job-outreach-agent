@@ -11,7 +11,6 @@ from app.db.models import Base
 from app.db.session import async_session, init_db
 from app.main import app
 from app.schemas.pipeline import JobDiscoveryItem, LeadCreate
-from app.services.notion_importer import NotionLeadImporter
 from app.services.job_source_discovery import JobSourceDiscoveryService
 from app.services.contact_finder import ContactFinderService, _PageParser
 
@@ -144,61 +143,6 @@ def test_batch_create_leads() -> None:
     assert [event["action"] for event in audit_events] == [
         "lead_created",
         "lead_created",
-    ]
-
-
-def test_notion_import_route_upserts_leads(monkeypatch) -> None:
-    async def fake_fetch_leads(
-        self,
-        database_id=None,
-        data_source_id=None,
-        max_pages=100,
-    ) -> list[LeadCreate]:
-        return [
-            LeadCreate(
-                first_name="Neil",
-                last_name="Jensen",
-                company="Steadyhand Investment Funds",
-                title="Chief Executive Officer",
-                source="notion_contact_source",
-                notion_page_id="notion-page-1",
-                linkedin_url="https://linkedin.com/in/neil",
-                lead_grade="B-Lead",
-                outreach_status="Not Contacted",
-                suggested_first_message="Hi Neil, I saw your work at Steadyhand.",
-            )
-        ]
-
-    monkeypatch.setattr(NotionLeadImporter, "fetch_leads", fake_fetch_leads)
-
-    response = client.post(
-        "/api/v1/integrations/notion/import-leads",
-        json={"data_source_id": "fake-data-source", "max_pages": 10},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["imported"] == 1
-    assert payload["updated"] == 0
-    assert payload["skipped"] == 0
-    assert payload["leads"][0]["email"] is None
-    assert payload["leads"][0]["notion_page_id"] == "notion-page-1"
-    assert payload["leads"][0]["lead_grade"] == "B-Lead"
-
-    second_response = client.post(
-        "/api/v1/integrations/notion/import-leads",
-        json={"data_source_id": "fake-data-source", "max_pages": 10},
-    )
-
-    assert second_response.status_code == 200
-    second_payload = second_response.json()
-    assert second_payload["imported"] == 0
-    assert second_payload["updated"] == 1
-
-    audit_events = client.get("/api/v1/audit-events").json()
-    assert [event["action"] for event in audit_events] == [
-        "lead_imported",
-        "lead_imported",
     ]
 
 

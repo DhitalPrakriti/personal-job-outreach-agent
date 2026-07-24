@@ -8,20 +8,10 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # App
-    app_env: str = "development"
-    app_port: int = 8000
-    app_secret_key: str = "change-me"
-    api_base_url: str = "http://localhost:8000"
     automation_api_key: str = ""
 
     # Database
     database_url: str = "postgresql+asyncpg://agent:changeme@localhost:5432/email_agent"
-
-    # Redis
-    redis_url: str = "redis://localhost:6379/0"
-
-    # Qdrant
-    qdrant_url: str = "http://localhost:6333"
 
     # LLM
     litellm_base_url: str = "http://localhost:4000"
@@ -29,7 +19,6 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     primary_model: str = "claude-sonnet"
     fast_model: str = "claude-haiku"
-    monthly_llm_budget_usd: float = 200.0
     ai_drafting_enabled: bool = False
 
     # Job discovery
@@ -46,7 +35,6 @@ class Settings(BaseSettings):
     microsoft_sender_user: str = ""
     microsoft_inbox_user: str = ""
     microsoft_graph_base_url: str = "https://graph.microsoft.com"
-    google_project_id: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""
     google_refresh_token: str = ""
@@ -58,34 +46,6 @@ class Settings(BaseSettings):
     email_reply_sync_enabled: bool = False
     email_reply_lookback_hours: int = 72
     email_reply_max_messages: int = 50
-
-    # Email Sending (SES)
-    aws_access_key_id: str = ""
-    aws_secret_access_key: str = ""
-    aws_region: str = "us-east-1"
-    ses_sender_email: str = ""
-
-    # Email Receiving (IMAP)
-    imap_host: str = ""
-    imap_port: int = 993
-    imap_user: str = ""
-    imap_password: str = ""
-
-    # Notion
-    notion_api_key: str = ""
-    notion_leads_database_id: str = ""
-    notion_leads_data_source_id: str = ""
-    notion_writeback_enabled: bool = False
-    notion_outreach_status_property_name: str = "Outreach Status"
-    notion_notes_property_name: str = "notes"
-    notion_version: str = "2026-03-11"
-
-    # Slack
-    slack_webhook_url: str = ""
-
-    # Dify
-    dify_base_url: str = "http://localhost:3100/v1"
-    dify_api_key: str = ""
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

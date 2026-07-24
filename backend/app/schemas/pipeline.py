@@ -107,7 +107,6 @@ class LeadCreate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     source: str = Field(default="manual", max_length=100)
     notes: str | None = Field(default=None, max_length=2000)
-    notion_page_id: str | None = Field(default=None, max_length=100)
     linkedin_url: str | None = Field(default=None, max_length=500)
     lead_grade: str | None = Field(default=None, max_length=100)
     outreach_status: str | None = Field(default=None, max_length=100)
@@ -249,7 +248,6 @@ class Lead(BaseModel):
     title: str | None = None
     source: str
     notes: str | None = None
-    notion_page_id: str | None = None
     linkedin_url: str | None = None
     lead_grade: str | None = None
     outreach_status: str | None = None
@@ -268,7 +266,6 @@ class Lead(BaseModel):
     contact_source_url: str | None = None
     contact_confidence_score: int | None = None
     contact_verification_status: str | None = None
-    last_synced_at: datetime | None = None
     status: LeadStatus
     created_at: datetime
     updated_at: datetime
@@ -627,19 +624,6 @@ class LinkedInConnectionMessageResult(BaseModel):
     character_count: int
     max_character_count: int = 300
     safety_note: str
-
-
-class NotionLeadImportRequest(BaseModel):
-    database_id: str | None = Field(default=None, max_length=100)
-    data_source_id: str | None = Field(default=None, max_length=100)
-    max_pages: int = Field(default=1000, ge=1, le=5000)
-
-
-class NotionLeadImportResult(BaseModel):
-    imported: int
-    updated: int
-    skipped: int
-    leads: list[Lead]
 
 
 class CampaignCreate(BaseModel):

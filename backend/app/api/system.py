@@ -44,16 +44,6 @@ async def system_readiness() -> dict[str, object]:
     return {
         "status": "ready" if database_connected else "degraded",
         "database": {"connected": database_connected},
-        "notion": {
-            "configured": bool(
-                settings.notion_api_key
-                and (
-                    settings.notion_leads_data_source_id
-                    or settings.notion_leads_database_id
-                )
-            ),
-            "writeback_enabled": settings.notion_writeback_enabled,
-        },
         "ai": {
             "enabled": settings.ai_drafting_enabled,
             "litellm_configured": bool(settings.litellm_base_url),

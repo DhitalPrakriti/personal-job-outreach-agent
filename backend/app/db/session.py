@@ -44,7 +44,7 @@ async def init_db() -> None:
         await connection.execute(text("alter type reply_intent add value if not exists 'BOUNCE'"))
         await connection.execute(text("alter type reply_intent add value if not exists 'UNCLEAR'"))
         await connection.execute(text("alter table leads alter column email drop not null"))
-        await connection.execute(text("alter table leads add column if not exists notion_page_id varchar(100)"))
+        await connection.execute(text("alter table leads drop column if exists notion_page_id"))
         await connection.execute(text("alter table leads add column if not exists linkedin_url varchar(500)"))
         await connection.execute(text("alter table leads add column if not exists lead_grade varchar(100)"))
         await connection.execute(text("alter table leads add column if not exists outreach_status varchar(100)"))
@@ -63,9 +63,7 @@ async def init_db() -> None:
         await connection.execute(text("alter table leads add column if not exists contact_source_url varchar(500)"))
         await connection.execute(text("alter table leads add column if not exists contact_confidence_score integer"))
         await connection.execute(text("alter table leads add column if not exists contact_verification_status varchar(100)"))
-        await connection.execute(
-            text("alter table leads add column if not exists last_synced_at timestamp with time zone")
-        )
+        await connection.execute(text("alter table leads drop column if exists last_synced_at"))
         await connection.execute(
             text(
                 """
@@ -112,12 +110,6 @@ async def init_db() -> None:
                     'Closed'
                 )
                 """
-            )
-        )
-        await connection.execute(
-            text(
-                "create unique index if not exists ix_leads_notion_page_id "
-                "on leads (notion_page_id) where notion_page_id is not null"
             )
         )
         await connection.execute(text("alter table email_drafts add column if not exists qa_status varchar(50)"))

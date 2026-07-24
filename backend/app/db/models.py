@@ -46,7 +46,6 @@ class LeadModel(TimestampMixin, Base):
     title: Mapped[str | None] = mapped_column(String(200))
     source: Mapped[str] = mapped_column(String(100), nullable=False, default="manual")
     notes: Mapped[str | None] = mapped_column(Text)
-    notion_page_id: Mapped[str | None] = mapped_column(String(100), unique=True, index=True)
     linkedin_url: Mapped[str | None] = mapped_column(String(500))
     lead_grade: Mapped[str | None] = mapped_column(String(100))
     outreach_status: Mapped[str | None] = mapped_column(String(100))
@@ -65,7 +64,6 @@ class LeadModel(TimestampMixin, Base):
     contact_source_url: Mapped[str | None] = mapped_column(String(500))
     contact_confidence_score: Mapped[int | None] = mapped_column(Integer)
     contact_verification_status: Mapped[str | None] = mapped_column(String(100))
-    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[LeadStatus] = mapped_column(
         Enum(LeadStatus, name="lead_status"),
         nullable=False,

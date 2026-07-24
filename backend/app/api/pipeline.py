@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.email_inbox import EmailInboxError
 from app.agents.email_sender import EmailSendError
 from app.api.auth import verify_automation_token
-from app.core.config import get_settings
 from app.db.session import get_db
 from app.schemas.pipeline import (
     Application,
@@ -44,8 +43,6 @@ from app.schemas.pipeline import (
     LeadContactUpdate,
     LeadCreate,
     LinkedInConnectionMessageResult,
-    NotionLeadImportRequest,
-    NotionLeadImportResult,
     Opportunity,
     PipelineBatchRunRequest,
     PipelineBatchRunResult,
@@ -54,7 +51,6 @@ from app.schemas.pipeline import (
     ProfileSettingsUpdate,
     ReplyClassifyRequest,
     ReviewDecision,
-    ReplyIntent,
     ReplySyncResult,
     SendDecision,
     SourceTrackerCsvImportRequest,
@@ -64,11 +60,6 @@ from app.schemas.pipeline import (
 from app.services.job_search_discovery import JobSearchDiscoveryService
 from app.services.job_source_discovery import JobSourceDiscoveryService
 from app.services.job_url_importer import JobUrlImporter
-from app.services.notion_importer import (
-    NotionConfigurationError,
-    NotionImportError,
-    NotionLeadImporter,
-)
 from app.services.pipeline_service import DuplicateCareerSourceError, PipelineService
 from app.services.source_adapters import SourceAdapterError, adapter_for
 
@@ -77,51 +68,6 @@ router = APIRouter(prefix="/api/v1", tags=["pipeline"])
 
 def get_pipeline_service(db: AsyncSession = Depends(get_db)) -> PipelineService:
     return PipelineService(db)
-
-
-def _notion_writeback_note(action: str, actor: str, detail: str | None = None) -> str:
-    parts = [f"Outreach dashboard: {action} by {actor}."]
-    if detail:
-        parts.append(detail)
-    return " ".join(parts)
-
-
-def _reply_intent_to_notion_status(intent: ReplyIntent) -> str:
-    if intent == ReplyIntent.INTERESTED:
-        return "Replied"
-    if intent in {ReplyIntent.NOT_INTERESTED, ReplyIntent.UNSUBSCRIBE}:
-        return "Not a Fit"
-    if intent == ReplyIntent.OUT_OF_OFFICE:
-        return "Follow Up"
-    return "Connected"
-
-
-async def _writeback_lead_to_notion(
-    service: PipelineService,
-    lead_id: UUID,
-    outreach_status: str | None = None,
-    note: str | None = None,
-) -> None:
-    settings = get_settings()
-    if not settings.notion_writeback_enabled:
-        return
-
-    lead = await service.get_lead(lead_id)
-    if lead is None or not lead.notion_page_id:
-        return
-
-    importer = NotionLeadImporter()
-    try:
-        await importer.update_lead_page(
-            page_id=lead.notion_page_id,
-            outreach_status=outreach_status,
-            note=note,
-        )
-    except (NotionConfigurationError, NotionImportError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Local action succeeded, but Notion writeback failed: {exc}",
-        ) from exc
 
 
 @router.post("/leads", response_model=Lead, status_code=status.HTTP_201_CREATED)
@@ -459,39 +405,6 @@ async def import_indeed_csv(
     )
 
 
-@router.post("/integrations/notion/import-leads", response_model=NotionLeadImportResult)
-async def import_notion_leads(
-    payload: NotionLeadImportRequest,
-    _: None = Depends(verify_automation_token),
-    service: PipelineService = Depends(get_pipeline_service),
-) -> NotionLeadImportResult:
-    importer = NotionLeadImporter()
-    try:
-        leads = await importer.fetch_leads(
-            database_id=payload.database_id,
-            data_source_id=payload.data_source_id,
-            max_pages=payload.max_pages,
-        )
-    except NotionConfigurationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=str(exc),
-        ) from exc
-    except NotionImportError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
-        ) from exc
-
-    result = await service.upsert_imported_leads(leads)
-    return NotionLeadImportResult(
-        imported=result.imported,
-        updated=result.updated,
-        skipped=result.skipped,
-        leads=result.leads,
-    )
-
-
 @router.post("/integrations/email/sync-replies", response_model=ReplySyncResult)
 async def sync_email_replies(
     _: None = Depends(verify_automation_token),
@@ -532,15 +445,6 @@ async def sync_email_replies_from_dashboard(
         skipped=result.skipped,
         replies=result.replies,
     )
-
-
-@router.post("/integrations/outlook/sync-replies", response_model=ReplySyncResult)
-async def sync_outlook_replies(
-    _: None = Depends(verify_automation_token),
-    service: PipelineService = Depends(get_pipeline_service),
-) -> ReplySyncResult:
-    """Compatibility alias for older automation trigger imports."""
-    return await sync_email_replies(None, service)
 
 
 @router.post("/automation/generate-drafts", response_model=DraftQueueGenerateResult)
@@ -820,17 +724,6 @@ async def generate_draft(
     return draft
 
 
-@router.get("/drafts/{draft_id}", response_model=EmailDraft)
-async def get_draft(
-    draft_id: UUID,
-    service: PipelineService = Depends(get_pipeline_service),
-) -> EmailDraft:
-    draft = await service.get_draft(draft_id)
-    if draft is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
-    return draft
-
-
 @router.patch("/drafts/{draft_id}", response_model=EmailDraft)
 async def update_draft(
     draft_id: UUID,
@@ -855,15 +748,6 @@ async def approve_draft(
     draft = await service.approve_draft(draft_id, payload.reviewer, payload.note)
     if draft is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
-    await _writeback_lead_to_notion(
-        service=service,
-        lead_id=draft.lead_id,
-        note=_notion_writeback_note(
-            action="draft approved",
-            actor=payload.reviewer,
-            detail=payload.note,
-        ),
-    )
     return draft
 
 
@@ -876,15 +760,6 @@ async def reject_draft(
     draft = await service.reject_draft(draft_id, payload.reviewer, payload.note)
     if draft is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Draft not found")
-    await _writeback_lead_to_notion(
-        service=service,
-        lead_id=draft.lead_id,
-        note=_notion_writeback_note(
-            action="draft rejected",
-            actor=payload.reviewer,
-            detail=payload.note,
-        ),
-    )
     return draft
 
 
@@ -915,16 +790,6 @@ async def send_draft(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Draft must exist and be approved before it can be marked sent",
         )
-    await _writeback_lead_to_notion(
-        service=service,
-        lead_id=draft.lead_id,
-            outreach_status="Message Sent",
-        note=_notion_writeback_note(
-            action="draft sent or completed in dry-run",
-            actor=payload.sender,
-            detail=payload.note,
-        ),
-    )
     return draft
 
 
@@ -939,16 +804,6 @@ async def classify_reply(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Draft must exist and be sent before a reply can be classified",
         )
-    await _writeback_lead_to_notion(
-        service=service,
-        lead_id=reply.lead_id,
-        outreach_status=_reply_intent_to_notion_status(reply.intent),
-        note=_notion_writeback_note(
-            action=f"reply classified as {reply.intent.value}",
-            actor="Prakriti",
-            detail=reply.classification_reason,
-        ),
-    )
     return reply
 
 

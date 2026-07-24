@@ -56,14 +56,6 @@ from app.services.ai_draft_service import AIDraftService
 from app.services.job_source_discovery import JobSourceDiscoveryService
 
 
-class LeadImportResult:
-    def __init__(self) -> None:
-        self.imported = 0
-        self.updated = 0
-        self.skipped = 0
-        self.leads: list[LeadModel] = []
-
-
 class QueueResult:
     def __init__(self) -> None:
         self.scanned = 0
@@ -759,45 +751,12 @@ class PipelineService:
             "results": results,
         }
 
-    async def upsert_imported_leads(self, payloads: list[LeadCreate]) -> LeadImportResult:
-        result = LeadImportResult()
-        now = datetime.now(UTC)
-        for payload in payloads:
-            data = payload.model_dump()
-            notion_page_id = data.pop("notion_page_id", None)
-            if not notion_page_id:
-                result.skipped += 1
-                continue
-            lead = await self.get_lead_by_notion_page_id(notion_page_id)
-            if lead is None:
-                lead = LeadModel(status=LeadStatus.NEW, notion_page_id=notion_page_id, last_synced_at=now, **data)
-                self.session.add(lead)
-                await self.session.flush()
-                result.imported += 1
-                summary = "Contact imported from Notion"
-            else:
-                for key, value in data.items():
-                    setattr(lead, key, value)
-                lead.last_synced_at = now
-                result.updated += 1
-                summary = "Contact refreshed from Notion"
-            self._audit(AuditAction.LEAD_IMPORTED, "lead", lead.id, self._lead_summary(summary, lead))
-            result.leads.append(lead)
-        await self.session.commit()
-        for lead in result.leads:
-            await self.session.refresh(lead)
-        return result
-
     async def list_leads(self) -> list[LeadModel]:
         result = await self.session.execute(select(LeadModel).order_by(LeadModel.created_at))
         return list(result.scalars().all())
 
     async def get_lead(self, lead_id: UUID) -> LeadModel | None:
         return await self.session.get(LeadModel, lead_id)
-
-    async def get_lead_by_notion_page_id(self, notion_page_id: str) -> LeadModel | None:
-        result = await self.session.execute(select(LeadModel).where(LeadModel.notion_page_id == notion_page_id))
-        return result.scalar_one_or_none()
 
     async def update_lead_contact(self, lead_id: UUID, payload: LeadContactUpdate) -> LeadModel | None:
         lead = await self.get_lead(lead_id)

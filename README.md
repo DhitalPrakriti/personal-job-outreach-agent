@@ -129,8 +129,7 @@ automation endpoint runs — there is no separate workflow engine.
 Supporting services:
 
 - PostgreSQL: durable contacts, campaigns, drafts, replies, audit events
-- Redis: LiteLLM cache and future queue/rate-limit work
-- Qdrant: available for future retrieval and memory features
+- Redis: response cache for the LiteLLM proxy
 - LiteLLM: model aliases, routing, budgets, and provider abstraction
 - Cloud Scheduler (production): time-based triggers that POST to the automation endpoints
 
@@ -147,7 +146,7 @@ Supporting services:
 cd C:\personal-outreach-agent
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
-docker compose up -d postgres redis qdrant litellm
+docker compose up -d postgres redis litellm
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
 ```
 
