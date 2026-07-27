@@ -124,6 +124,16 @@ async def init_db() -> None:
         await connection.execute(text("alter table email_replies add column if not exists provider_thread_id varchar(500)"))
         await connection.execute(text("alter table email_replies add column if not exists subject varchar(500)"))
         await connection.execute(text("alter table email_replies add column if not exists received_at timestamp with time zone"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists display_name varchar(200)"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists purpose varchar(50) not null default 'job_search'"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists encrypted_refresh_token text"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists scopes text"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists is_default boolean not null default false"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists send_enabled boolean not null default true"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists reply_sync_enabled boolean not null default true"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists last_connected_at timestamp with time zone"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists last_sync_at timestamp with time zone"))
+        await connection.execute(text("alter table gmail_accounts add column if not exists status varchar(50) not null default 'connected'"))
         await connection.execute(
             text(
                 "create unique index if not exists ix_email_replies_provider_message_id "

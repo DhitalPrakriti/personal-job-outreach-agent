@@ -35,6 +35,35 @@ class TimestampMixin:
     )
 
 
+class AppUserModel(TimestampMixin, Base):
+    __tablename__ = "app_users"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
+    full_name: Mapped[str | None] = mapped_column(String(200))
+    password_hash: Mapped[str] = mapped_column(String(300), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_admin: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class GmailAccountModel(TimestampMixin, Base):
+    __tablename__ = "gmail_accounts"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
+    display_name: Mapped[str | None] = mapped_column(String(200))
+    purpose: Mapped[str] = mapped_column(String(50), nullable=False, default="job_search")
+    encrypted_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
+    scopes: Mapped[str | None] = mapped_column(Text)
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    send_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    reply_sync_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_connected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="connected")
+
+
 class LeadModel(TimestampMixin, Base):
     __tablename__ = "leads"
 

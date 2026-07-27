@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Personal AI Outreach Agent</title>
-  <link rel="stylesheet" href="./styles.css?v=20260721-practical-gmail">
+  <link rel="stylesheet" href="./styles.css?v=20260727-workflow-polish">
 </head>
 <body>
   <header class="topbar">
@@ -38,18 +38,60 @@
   </header>
 
   <main id="workflow-view" class="layout dashboard-view">
+    <section class="panel wide command-panel" data-workspace-panel="dashboard">
+      <div>
+        <p class="eyebrow">Human-Approved Job Search Automation</p>
+        <h2>AI job discovery, application tracking, Gmail outreach, replies, and follow-ups in one workflow.</h2>
+        <p class="muted">
+          Use this as your operating system for finding early-career tech opportunities, tracking applications, preparing outreach, and following up without sending anything automatically.
+        </p>
+        <div class="workflow-rail" aria-label="Primary workflow">
+          <span class="workflow-step">Discover</span>
+          <span class="workflow-step">Analyze Fit</span>
+          <span class="workflow-step">Research Company</span>
+          <span class="workflow-step">Find Contact</span>
+          <span class="workflow-step">Draft</span>
+          <span class="workflow-step">Approve</span>
+          <span class="workflow-step">Send Email</span>
+          <span class="workflow-step">Reply + Follow-up</span>
+        </div>
+      </div>
+      <div id="demo-mode-summary" class="demo-mode-grid" aria-label="System status summary">
+        <div class="demo-mode-card">
+          <strong>Safety</strong>
+          <span>Human approved</span>
+          <small>No Gmail message is sent without review.</small>
+        </div>
+        <div class="demo-mode-card">
+          <strong>Budget</strong>
+          <span>C$20 cap</span>
+          <small>LiteLLM routes Gemini usage through monthly caps.</small>
+        </div>
+        <div class="demo-mode-card">
+          <strong>LinkedIn / Indeed</strong>
+          <span>Manual-safe</span>
+          <small>Track URLs and pasted descriptions without scraping.</small>
+        </div>
+        <div class="demo-mode-card">
+          <strong>Traceability</strong>
+          <span>Audit-ready</span>
+          <small>Imports, drafts, approvals, sends, and replies are logged.</small>
+        </div>
+      </div>
+    </section>
+
     <section class="panel wide dashboard-overview" data-workspace-panel="dashboard">
       <div class="panel-header">
         <div>
-          <h2>Pipeline Overview</h2>
-          <p class="muted compact-copy">Current workload across discovery, applications, outreach, and replies.</p>
+          <h2>Command Center</h2>
+          <p class="muted compact-copy">Action queue, pipeline, analytics, guardrails, and audit trail in one place.</p>
         </div>
       </div>
-      <div id="dashboard-kpis" class="metric-grid"></div>
-      <div id="dashboard-next-actions" class="next-actions"></div>
+      <div id="dashboard-kpis" class="dashboard-command-center"></div>
+      <div id="dashboard-next-actions" class="dashboard-lower-grid"></div>
     </section>
 
-    <section id="dashboard-section" class="panel wide" data-workspace-panel="dashboard">
+    <section id="dashboard-section" class="panel wide" data-workspace-panel="settings">
       <div class="panel-header">
         <h2>Integration Readiness</h2>
         <span id="readiness-status" class="status-pill">Checking</span>
@@ -119,17 +161,18 @@
         <label>
           Outreach status
           <select name="outreach_status">
-            <option value="DISCOVERED">DISCOVERED</option>
-            <option value="ANALYZED">ANALYZED</option>
-            <option value="COMPANY_RESEARCHED">COMPANY_RESEARCHED</option>
-            <option value="CONTACT_FOUND">CONTACT_FOUND</option>
-            <option value="DRAFTED">DRAFTED</option>
-            <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
-            <option value="APPROVED">APPROVED</option>
-            <option value="SENT">SENT</option>
-            <option value="REPLIED">REPLIED</option>
-            <option value="FOLLOW_UP_DUE">FOLLOW_UP_DUE</option>
-            <option value="CLOSED">CLOSED</option>
+            <option value="DISCOVERED">Discovered</option>
+            <option value="ANALYZED">Analyzed</option>
+            <option value="COMPANY_RESEARCHED">Company researched</option>
+            <option value="CONTACT_SEARCH_NEEDED">Contact needed</option>
+            <option value="CONTACT_FOUND">Contact found</option>
+            <option value="DRAFTED">Drafted</option>
+            <option value="PENDING_APPROVAL">Needs approval</option>
+            <option value="APPROVED">Approved</option>
+            <option value="SENT">Sent</option>
+            <option value="REPLIED">Replied</option>
+            <option value="FOLLOW_UP_DUE">Follow-up needed</option>
+            <option value="CLOSED">Closed</option>
           </select>
         </label>
         <label class="full">
@@ -144,9 +187,12 @@
       </form>
     </section>
 
-    <section class="panel" data-workspace-panel="dashboard">
+    <section id="campaign-section" class="panel settings-panel" data-workspace-panel="settings">
       <div class="panel-header">
-        <h2>Create Campaign</h2>
+        <div>
+          <h2>Campaign</h2>
+          <p class="muted compact-copy">Create the active outreach campaign used by draft generation and follow-up context.</p>
+        </div>
       </div>
       <form id="campaign-form" class="form-grid">
         <label>
@@ -165,7 +211,7 @@
       </form>
     </section>
 
-    <section id="job-discovery-section" class="panel wide" data-workspace-panel="job-discovery">
+    <section id="job-discovery-section" class="panel wide workflow-card" data-workflow-label="Step 1 - URL import" data-workspace-panel="job-discovery">
       <div class="panel-header">
         <div>
           <h2>Paste Job URL</h2>
@@ -231,7 +277,7 @@
       </form>
     </section>
 
-    <section class="panel wide" data-workspace-panel="job-discovery">
+    <section class="panel wide workflow-card" data-workflow-label="Step 2 - Source search" data-workspace-panel="job-discovery">
       <div class="panel-header">
         <h2>Automated Job Search</h2>
       </div>
@@ -301,7 +347,8 @@ remoteok</textarea>
         </label>
         <label>
           Max jobs per source
-          <input name="max_jobs_per_source" type="number" min="1" max="100" value="20">
+          <input name="max_jobs_per_source" type="number" min="1" max="10" value="10">
+          <small class="field-hint">Backend hard cap: 10 per source, 30 per search run.</small>
         </label>
         <label>
           Posted within
@@ -321,7 +368,7 @@ remoteok</textarea>
       </form>
     </section>
 
-    <section class="panel wide" data-workspace-panel="settings">
+    <section class="panel wide settings-panel" data-workspace-panel="settings">
       <div class="panel-header">
         <div>
           <h2>System Readiness & Safety</h2>
@@ -329,23 +376,35 @@ remoteok</textarea>
         </div>
         <span id="settings-status" class="status-pill">Checking</span>
       </div>
-      <div id="settings-readiness-summary" class="summary-grid"></div>
-      <div id="settings-safety-summary" class="summary-grid"></div>
+      <div id="settings-readiness-summary" class="settings-list"></div>
+      <div id="settings-safety-summary" class="settings-list"></div>
+      <div class="settings-subsection">
+        <div class="panel-header compact-header">
+          <div>
+            <h3>Connected Gmail Accounts</h3>
+            <p class="muted compact-copy">Use the test account for QA, then mark your real job-search Gmail as default for real outreach and reply sync.</p>
+          </div>
+        </div>
+        <div id="gmail-accounts-list" class="table-wrap"></div>
+      </div>
       <div class="section-actions">
         <button id="settings-refresh" class="secondary" type="button">Refresh Readiness</button>
         <button id="connect-gmail" type="button">Connect Gmail OAuth</button>
       </div>
-      <div id="deployment-checklist" class="checklist-grid"></div>
+      <details class="settings-details">
+        <summary>Deployment checks</summary>
+        <div id="deployment-checklist" class="checklist-grid"></div>
+      </details>
     </section>
 
-    <section class="panel wide" data-workspace-panel="settings">
+    <section class="panel wide settings-panel" data-workspace-panel="settings">
       <div class="panel-header">
         <div>
           <h2>Profile & Job Preferences</h2>
-          <p class="muted compact-copy">This profile drives fit scoring, application tracking, and draft context.</p>
+          <p class="muted compact-copy">Single source of truth. Job Discovery uses these defaults; imported opportunities are saved separately.</p>
         </div>
       </div>
-      <div id="profile-summary" class="summary-grid"></div>
+      <div id="profile-summary" class="profile-compact-summary"></div>
       <form id="profile-form" class="form-grid">
         <label>
           Name
@@ -353,11 +412,11 @@ remoteok</textarea>
         </label>
         <label>
           Primary email
-          <input name="primary_email" type="email" placeholder="prakriti.dhital.tech@gmail.com">
+          <input name="primary_email" type="email" placeholder="your.jobsearch.email@gmail.com">
         </label>
         <label>
           Outreach email
-          <input name="outreach_email" type="email" placeholder="prakriti.dhital.tech@gmail.com">
+          <input name="outreach_email" type="email" placeholder="your.jobsearch.email@gmail.com">
         </label>
         <label>
           Default resume version
@@ -458,6 +517,24 @@ remoteok</textarea>
           <p class="muted compact-copy">Manual-safe tracking only. Paste a job URL and description; the app will not scrape LinkedIn or send LinkedIn messages.</p>
         </div>
       </div>
+      <div class="source-launcher-grid" aria-label="LinkedIn search shortcuts">
+        <a class="source-launcher" href="https://www.linkedin.com/jobs/search/?keywords=Junior%20AI%20Engineer&location=Canada&f_TPR=r604800" target="_blank" rel="noopener noreferrer">
+          <strong>Junior AI Engineer</strong>
+          <span>Canada, past week</span>
+        </a>
+        <a class="source-launcher" href="https://www.linkedin.com/jobs/search/?keywords=Junior%20Backend%20Developer&location=Canada&f_TPR=r604800" target="_blank" rel="noopener noreferrer">
+          <strong>Junior Backend</strong>
+          <span>Canada, past week</span>
+        </a>
+        <a class="source-launcher" href="https://www.linkedin.com/jobs/search/?keywords=New%20Grad%20Software%20Developer&location=Canada&f_TPR=r604800" target="_blank" rel="noopener noreferrer">
+          <strong>New Grad Software</strong>
+          <span>Canada, past week</span>
+        </a>
+        <a class="source-launcher" href="https://www.linkedin.com/jobs/search/?keywords=Junior%20QA%20Automation&location=Canada&f_TPR=r604800" target="_blank" rel="noopener noreferrer">
+          <strong>QA Automation</strong>
+          <span>Canada, past week</span>
+        </a>
+      </div>
       <form id="linkedin-import-form" class="form-grid">
         <label class="full">
           LinkedIn job URL
@@ -505,6 +582,24 @@ remoteok</textarea>
           <h2>Indeed Tracker</h2>
           <p class="muted compact-copy">Use this for jobs you found on Indeed. Paste the URL and description when available; no unsupported scraping is performed.</p>
         </div>
+      </div>
+      <div class="source-launcher-grid" aria-label="Indeed search shortcuts">
+        <a class="source-launcher" href="https://ca.indeed.com/jobs?q=Junior%20AI%20Engineer&l=Canada&fromage=7" target="_blank" rel="noopener noreferrer">
+          <strong>Junior AI Engineer</strong>
+          <span>Canada, past week</span>
+        </a>
+        <a class="source-launcher" href="https://ca.indeed.com/jobs?q=Junior%20Backend%20Developer&l=Canada&fromage=7" target="_blank" rel="noopener noreferrer">
+          <strong>Junior Backend</strong>
+          <span>Canada, past week</span>
+        </a>
+        <a class="source-launcher" href="https://ca.indeed.com/jobs?q=New%20Grad%20Software%20Developer&l=Canada&fromage=7" target="_blank" rel="noopener noreferrer">
+          <strong>New Grad Software</strong>
+          <span>Canada, past week</span>
+        </a>
+        <a class="source-launcher" href="https://ca.indeed.com/jobs?q=Junior%20QA%20Automation&l=Canada&fromage=7" target="_blank" rel="noopener noreferrer">
+          <strong>QA Automation</strong>
+          <span>Canada, past week</span>
+        </a>
       </div>
       <form id="indeed-import-form" class="form-grid">
         <label class="full">
@@ -557,7 +652,7 @@ remoteok</textarea>
       </form>
     </section>
 
-    <section class="panel wide" data-workspace-panel="job-discovery">
+    <section class="panel wide workflow-card" data-workflow-label="Step 3 - Saved company sources" data-workspace-panel="job-discovery">
       <div class="panel-header">
         <div>
           <h2>Saved Company Career Sources</h2>
@@ -595,7 +690,7 @@ remoteok</textarea>
       <div id="career-sources-list" class="table-wrap"></div>
     </section>
 
-    <section class="panel wide" data-workspace-panel="job-discovery">
+    <section class="panel wide workflow-card" data-workflow-label="Step 4 - Career page scan" data-workspace-panel="job-discovery">
       <div class="panel-header">
         <h2>Company Careers URL Discovery</h2>
       </div>
@@ -670,7 +765,7 @@ GCP</textarea>
       </form>
     </section>
 
-    <section class="panel wide" data-workspace-panel="job-discovery">
+    <section class="panel wide workflow-card" data-workflow-label="Step 5 - Quick manual save" data-workspace-panel="job-discovery">
       <div class="panel-header">
         <div>
           <h2>Quick Job Import</h2>
@@ -714,13 +809,15 @@ GCP</textarea>
       </form>
     </section>
 
-    <section class="panel wide muted-panel" data-workspace-panel="job-discovery">
+    <section class="panel wide muted-panel advanced-import-panel" data-workspace-panel="job-discovery">
       <div class="panel-header">
         <div>
           <h2>Advanced Bulk Job Rows</h2>
           <p class="muted compact-copy">Use this only for pasted/exported rows. For normal use, automated search, career URL scan, or Quick Job Import is easier.</p>
         </div>
       </div>
+      <details class="advanced-details">
+        <summary>Open bulk row importer</summary>
       <form id="job-discovery-form" class="form-grid">
         <label class="full">
           Target roles
@@ -787,6 +884,7 @@ GCP</textarea>
         <button class="secondary" type="button" data-action="fill-job-template">Fill Job Template</button>
         <button type="submit">Import Discovered Jobs</button>
       </form>
+      </details>
     </section>
 
     <section class="panel wide" data-workspace-panel="contact-finder">
@@ -812,7 +910,7 @@ GCP</textarea>
       <div class="queue-toolbar">
         <label>
           Safe batch limit
-          <input id="pipeline-batch-limit" type="number" min="1" max="25" value="5">
+          <input id="pipeline-batch-limit" type="number" min="1" max="10" value="5">
         </label>
         <p class="muted compact-copy">
           Advances discovered, analyzed, and company-researched opportunities. Does not generate drafts, approve, or send.
@@ -824,17 +922,17 @@ GCP</textarea>
           Outreach
           <select id="lead-outreach-filter">
             <option value="">All statuses</option>
-            <option value="DISCOVERED">DISCOVERED</option>
-            <option value="ANALYZED">ANALYZED</option>
-            <option value="COMPANY_RESEARCHED">COMPANY_RESEARCHED</option>
-            <option value="CONTACT_FOUND">CONTACT_FOUND</option>
-            <option value="DRAFTED">DRAFTED</option>
-            <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
-            <option value="APPROVED">APPROVED</option>
-            <option value="SENT">SENT</option>
-            <option value="REPLIED">REPLIED</option>
-            <option value="FOLLOW_UP_DUE">FOLLOW_UP_DUE</option>
-            <option value="CLOSED">CLOSED</option>
+            <option value="DISCOVERED">Discovered</option>
+            <option value="ANALYZED">Analyzed</option>
+            <option value="COMPANY_RESEARCHED">Company researched</option>
+            <option value="CONTACT_FOUND">Contact found</option>
+            <option value="DRAFTED">Drafted</option>
+            <option value="PENDING_APPROVAL">Needs approval</option>
+            <option value="APPROVED">Approved</option>
+            <option value="SENT">Sent</option>
+            <option value="REPLIED">Replied</option>
+            <option value="FOLLOW_UP_DUE">Follow-up needed</option>
+            <option value="CLOSED">Closed</option>
           </select>
         </label>
         <label>
@@ -868,18 +966,18 @@ GCP</textarea>
           Status
           <select id="application-status-filter">
             <option value="">All statuses</option>
-            <option value="SAVED">SAVED</option>
-            <option value="APPLIED">APPLIED</option>
-            <option value="CONTACT_SEARCH_NEEDED">CONTACT_SEARCH_NEEDED</option>
-            <option value="CONTACT_FOUND">CONTACT_FOUND</option>
-            <option value="OUTREACH_DRAFTED">OUTREACH_DRAFTED</option>
-            <option value="OUTREACH_APPROVED">OUTREACH_APPROVED</option>
-            <option value="OUTREACH_SENT">OUTREACH_SENT</option>
-            <option value="REPLIED">REPLIED</option>
-            <option value="INTERVIEW">INTERVIEW</option>
-            <option value="REJECTED">REJECTED</option>
-            <option value="FOLLOW_UP_DUE">FOLLOW_UP_DUE</option>
-            <option value="CLOSED">CLOSED</option>
+            <option value="SAVED">Saved</option>
+            <option value="APPLIED">Applied</option>
+            <option value="INTERVIEW">Interview</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="FOLLOW_UP_DUE">Follow-up needed</option>
+            <option value="REPLIED">Replied</option>
+            <option value="CONTACT_SEARCH_NEEDED">Contact needed</option>
+            <option value="CONTACT_FOUND">Contact found</option>
+            <option value="OUTREACH_DRAFTED">Outreach drafted</option>
+            <option value="OUTREACH_APPROVED">Outreach approved</option>
+            <option value="OUTREACH_SENT">Outreach sent</option>
+            <option value="CLOSED">Closed</option>
           </select>
         </label>
         <label>
@@ -926,18 +1024,18 @@ GCP</textarea>
         <label>
           Status
           <select name="status">
-            <option value="SAVED">SAVED</option>
-            <option value="APPLIED">APPLIED</option>
-            <option value="CONTACT_SEARCH_NEEDED">CONTACT_SEARCH_NEEDED</option>
-            <option value="CONTACT_FOUND">CONTACT_FOUND</option>
-            <option value="OUTREACH_DRAFTED">OUTREACH_DRAFTED</option>
-            <option value="OUTREACH_APPROVED">OUTREACH_APPROVED</option>
-            <option value="OUTREACH_SENT">OUTREACH_SENT</option>
-            <option value="REPLIED">REPLIED</option>
-            <option value="INTERVIEW">INTERVIEW</option>
-            <option value="REJECTED">REJECTED</option>
-            <option value="FOLLOW_UP_DUE">FOLLOW_UP_DUE</option>
-            <option value="CLOSED">CLOSED</option>
+            <option value="SAVED">Saved</option>
+            <option value="APPLIED">Applied</option>
+            <option value="INTERVIEW">Interview</option>
+            <option value="REJECTED">Rejected</option>
+            <option value="FOLLOW_UP_DUE">Follow-up needed</option>
+            <option value="REPLIED">Replied</option>
+            <option value="CONTACT_SEARCH_NEEDED">Contact needed</option>
+            <option value="CONTACT_FOUND">Contact found</option>
+            <option value="OUTREACH_DRAFTED">Outreach drafted</option>
+            <option value="OUTREACH_APPROVED">Outreach approved</option>
+            <option value="OUTREACH_SENT">Outreach sent</option>
+            <option value="CLOSED">Closed</option>
           </select>
         </label>
         <label>
@@ -1007,7 +1105,7 @@ GCP</textarea>
         </label>
         <label class="full">
           Call to action
-          <input name="call_to_action" type="text" value="Open to a brief conversation next week?">
+          <input name="call_to_action" type="text" value="If your team considers junior candidates for similar roles, I'd be grateful for any advice or direction.">
         </label>
         <label class="full">
           Extra context
@@ -1017,11 +1115,17 @@ GCP</textarea>
       </form>
     </section>
 
-    <section class="panel" data-workspace-panel="replies">
+    <section class="panel muted-panel" data-workspace-panel="replies">
       <div class="panel-header">
-        <h2>Classify Reply</h2>
+        <div>
+          <h2>Manual Reply QA</h2>
+          <p class="muted compact-copy">Optional fallback for replies copied from LinkedIn, Indeed, or another inbox.</p>
+        </div>
       </div>
       <form id="reply-form" class="form-grid">
+        <p class="field-hint full">
+          Real Gmail replies are classified automatically by Sync Gmail Replies below. Use this pasted-reply box only for local testing or messages copied from another platform.
+        </p>
         <label>
           Sent draft
           <select name="draft_id" required></select>
@@ -1032,9 +1136,9 @@ GCP</textarea>
         </label>
         <label class="full">
           Reply body
-          <textarea name="body" rows="4" required>This is interesting. Can we schedule a call?</textarea>
+          <textarea name="body" rows="4" required placeholder="Paste the recruiter/company reply only when Gmail sync is off or you are testing locally."></textarea>
         </label>
-        <button type="submit">Classify Reply</button>
+        <button class="secondary" type="submit">Classify Pasted Reply</button>
       </form>
     </section>
 
@@ -1042,10 +1146,10 @@ GCP</textarea>
       <div class="panel-header">
         <div>
           <h2>Draft Approval Queue</h2>
-          <p class="muted compact-copy">Approved drafts need a real public email before Gmail send/dry-run.</p>
+          <p class="muted compact-copy">Review generated drafts here. Approved drafts move to Gmail Outreach for recipient email and send readiness.</p>
         </div>
         <div class="section-actions">
-          <button id="find-draft-emails" class="secondary" type="button">Find Missing Emails</button>
+          <button id="find-draft-emails" class="secondary" type="button" hidden>Find Missing Emails</button>
         </div>
         <span id="draft-count" class="count">0</span>
       </div>
@@ -1056,7 +1160,7 @@ GCP</textarea>
       <div class="panel-header">
         <div>
           <h2>Gmail Outreach</h2>
-          <p class="muted compact-copy">Approved messages only. Dry run stays on unless LIVE_SEND is enabled.</p>
+          <p class="muted compact-copy">Approved messages only. Flow is Needs recipient -> Ready to send -> Sent -> Reply waiting -> Follow-up due.</p>
         </div>
         <span id="sent-count" class="count">0</span>
       </div>
@@ -1068,7 +1172,7 @@ GCP</textarea>
       <div class="panel-header">
         <div>
           <h2>Replies</h2>
-          <p class="muted compact-copy">Sync Gmail replies or classify a pasted reply for a sent draft.</p>
+          <p class="muted compact-copy">Use Gmail sync as the normal path. The app fetches messages from your connected job-search Gmail, matches them to sent outreach, and classifies the reply.</p>
         </div>
         <span id="reply-count" class="count">0</span>
       </div>
@@ -1076,6 +1180,7 @@ GCP</textarea>
       <div class="section-actions">
         <button id="sync-email-replies" class="secondary" type="button">Sync Gmail Replies</button>
       </div>
+      <div id="reply-sync-details"></div>
       <div id="replies-list" class="table-wrap"></div>
     </section>
 
@@ -1083,7 +1188,7 @@ GCP</textarea>
       <div class="panel-header">
         <div>
           <h2>Follow-ups</h2>
-          <p class="muted compact-copy">Create follow-up drafts for sent outreach with no reply. Drafts still require review.</p>
+          <p class="muted compact-copy">Sync Gmail replies first, then create follow-up drafts only when a sent message has no reply after the selected waiting window.</p>
         </div>
         <span id="followup-count" class="count">0</span>
       </div>
@@ -1096,14 +1201,25 @@ GCP</textarea>
         </label>
         <label>
           Max drafts
-          <input id="followup-limit" type="number" min="1" max="200" value="10">
+          <input id="followup-limit" type="number" min="1" max="5" value="5">
+          <small class="field-hint">Backend hard cap: 5 AI follow-up drafts per run.</small>
         </label>
         <label>
           Call to action
-          <input id="followup-cta" type="text" value="Would it be worth a quick conversation this week?">
+          <input id="followup-cta" type="text" value="I'd be grateful for any guidance on whether this type of role could be a good fit for someone with my background.">
+        </label>
+        <label class="inline-option">
+          <input id="followup-sync-first" type="checkbox" checked>
+          Sync Gmail replies before generating
         </label>
         <button id="generate-followups" type="button">Generate Follow-up Drafts</button>
       </div>
+      <div class="suggestion-row" aria-label="Follow-up call to action options">
+        <button class="secondary compact-action" type="button" data-followup-cta="I'd be grateful for any guidance on whether this type of role could be a good fit for someone with my background.">Guidance</button>
+        <button class="secondary compact-action" type="button" data-followup-cta="If your team considers junior candidates for similar roles, I'd be grateful for any advice or direction.">Junior Direction</button>
+        <button class="secondary compact-action" type="button" data-followup-cta="I'd appreciate the chance to be considered or pointed toward the right application or contact if appropriate.">Right Contact</button>
+      </div>
+      <div id="followup-run-summary"></div>
       <div id="followup-list" class="table-wrap"></div>
     </section>
 
@@ -1129,6 +1245,19 @@ GCP</textarea>
   </main>
 
   <div id="toast" class="toast" hidden></div>
-  <script src="./app.js?v=20260721-practical-gmail"></script>
+  <div id="confirm-modal" class="confirm-modal" hidden>
+    <div class="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+      <div class="confirm-icon" aria-hidden="true">!</div>
+      <div class="confirm-content">
+        <h2 id="confirm-title">Confirm Action</h2>
+        <p id="confirm-message">Are you sure?</p>
+      </div>
+      <div class="confirm-actions">
+        <button id="confirm-cancel" class="secondary" type="button">Cancel</button>
+        <button id="confirm-ok" type="button">Confirm</button>
+      </div>
+    </div>
+  </div>
+  <script src="./app.js?v=20260727-workflow-polish"></script>
 </body>
 </html>

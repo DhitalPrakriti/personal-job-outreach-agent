@@ -9,6 +9,7 @@ import httpx
 
 from app.agents.email_sender import EmailSendError, EmailSenderAgent
 from app.core.config import get_settings
+from app.services.gmail_account_service import GmailAccountCredentials
 
 
 class EmailInboxError(RuntimeError):
@@ -29,22 +30,22 @@ class EmailInboxAgent:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    async def fetch_recent(self) -> list[InboxMessage]:
+    async def fetch_recent(self, gmail_account: GmailAccountCredentials | None = None) -> list[InboxMessage]:
         if not self.settings.email_reply_sync_enabled:
             return []
         provider = self.settings.email_provider.lower()
         if provider == "gmail":
-            return await self._fetch_gmail_recent()
+            return await self._fetch_gmail_recent(gmail_account)
         if provider != "outlook":
             raise EmailInboxError(f"Unsupported reply sync provider: {self.settings.email_provider}")
         return await self._fetch_outlook_recent()
 
-    async def _fetch_gmail_recent(self) -> list[InboxMessage]:
-        inbox = self.settings.google_inbox_email or self.settings.google_sender_email
+    async def _fetch_gmail_recent(self, gmail_account: GmailAccountCredentials | None = None) -> list[InboxMessage]:
+        inbox = gmail_account.email if gmail_account else self.settings.google_inbox_email or self.settings.google_sender_email
         if not inbox:
             raise EmailInboxError("Gmail inbox user is not configured.")
         try:
-            token = await EmailSenderAgent()._gmail_access_token()
+            token = await EmailSenderAgent()._gmail_access_token(gmail_account)
         except EmailSendError as exc:
             raise EmailInboxError(str(exc)) from exc
 

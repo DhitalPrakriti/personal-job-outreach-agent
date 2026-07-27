@@ -28,6 +28,10 @@ class JobSearchDiscoveryService:
 
     async def search(self, payload: JobSearchRequest) -> JobSearchServiceResult:
         result = JobSearchServiceResult()
+        payload.max_jobs_per_source = max(
+            1,
+            min(payload.max_jobs_per_source, self.settings.max_jobs_per_source),
+        )
         headers = {
             "User-Agent": (
                 "PersonalOutreachAgent/0.1 "
@@ -69,7 +73,7 @@ class JobSearchDiscoveryService:
 
                 result.jobs.extend(jobs)
 
-        result.jobs = self._dedupe(result.jobs)
+        result.jobs = self._dedupe(result.jobs)[: self.settings.max_jobs_per_search_run]
         return result
 
     async def _search_remotive(
@@ -391,7 +395,8 @@ class JobSearchDiscoveryService:
     def _is_senior_role(title_text: str) -> bool:
         return bool(
             re.search(
-                r"\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect)\b",
+                r"\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect|intermediate)\b"
+                r"|\b(ii|iii|iv)\b",
                 title_text,
             )
         )

@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Login - Personal AI Outreach Agent</title>
+  <style>
+    :root {
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #5f6f82;
+      --line: #d8e0e8;
+      --accent: #0f766e;
+      --accent-dark: #0b5f59;
+      --danger: #a73b3b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+    }
+    main {
+      width: min(460px, calc(100vw - 32px));
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 28px;
+      background: var(--panel);
+      box-shadow: 0 16px 38px rgba(23, 32, 42, 0.08);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 25px;
+      line-height: 1.2;
+    }
+    p {
+      margin: 0 0 20px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    form,
+    label {
+      display: grid;
+      gap: 10px;
+    }
+    label {
+      color: #506174;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    input {
+      min-height: 43px;
+      border: 1px solid #c3ced9;
+      border-radius: 7px;
+      padding: 10px 11px;
+      font: inherit;
+    }
+    input:focus {
+      border-color: var(--accent);
+      outline: 3px solid rgba(15, 118, 110, 0.13);
+    }
+    button {
+      min-height: 44px;
+      border: 1px solid var(--accent);
+      border-radius: 7px;
+      color: #ffffff;
+      background: var(--accent);
+      font: inherit;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    button:hover { background: var(--accent-dark); }
+    .message {
+      min-height: 22px;
+      margin-top: 14px;
+      color: var(--danger);
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .signup {
+      display: none;
+      margin-top: 18px;
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Personal AI Outreach Agent</h1>
+    <p>Sign in to access the dashboard, Gmail outreach tools, and job pipeline.</p>
+    <form id="login-form">
+      <label>
+        Email
+        <input name="email" type="email" autocomplete="email" required>
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" autocomplete="current-password" maxlength="72" required>
+      </label>
+      <button type="submit">Sign In</button>
+    </form>
+    <form id="signup-form" class="signup">
+      <p>First-time setup is invite-code protected.</p>
+      <label>
+        Name
+        <input name="full_name" type="text" autocomplete="name">
+      </label>
+      <label>
+        Email
+        <input name="email" type="email" autocomplete="email" required>
+      </label>
+      <label>
+        Password
+        <input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="72" required>
+      </label>
+      <label>
+        Invite code
+        <input name="invite_code" type="password" required>
+      </label>
+      <button type="submit">Create Account</button>
+    </form>
+    <div id="message" class="message" role="status"></div>
+  </main>
+  <script>
+    const message = document.querySelector("#message");
+    const loginForm = document.querySelector("#login-form");
+    const signupForm = document.querySelector("#signup-form");
+
+    function showMessage(text) {
+      message.textContent = text || "";
+    }
+
+    function formatApiError(detail, status) {
+      if (!detail) return `Request failed: ${status}`;
+      if (typeof detail === "string") return detail;
+      if (Array.isArray(detail)) {
+        return detail.map((item) => {
+          if (typeof item === "string") return item;
+          const path = Array.isArray(item.loc) ? item.loc.filter((part) => part !== "body").join(".") : "";
+          const text = item.msg || JSON.stringify(item);
+          return path ? `${path}: ${text}` : text;
+        }).join("; ");
+      }
+      if (typeof detail === "object") return detail.message || detail.msg || JSON.stringify(detail);
+      return String(detail);
+    }
+
+    async function postJson(url, payload) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(formatApiError(data.detail, response.status));
+      }
+      return response.json();
+    }
+
+    fetch("/auth/app/status")
+      .then((response) => response.json())
+      .then((status) => {
+        if (status.authenticated) window.location.href = "/";
+        if (status.signup_enabled && !status.has_users) signupForm.style.display = "grid";
+      })
+      .catch(() => showMessage("Unable to check login status."));
+
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      showMessage("");
+      const form = event.currentTarget;
+      try {
+        await postJson("/auth/app/login", {
+          email: form.elements.email.value,
+          password: form.elements.password.value,
+        });
+        window.location.href = "/";
+      } catch (error) {
+        showMessage(error.message);
+      }
+    });
+
+    signupForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      showMessage("");
+      const form = event.currentTarget;
+      try {
+        await postJson("/auth/app/signup", {
+          email: form.elements.email.value,
+          password: form.elements.password.value,
+          full_name: form.elements.full_name.value,
+          invite_code: form.elements.invite_code.value,
+        });
+        window.location.href = "/";
+      } catch (error) {
+        showMessage(error.message);
+      }
+    });
+  </script>
+</body>
+</html>

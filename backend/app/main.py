@@ -4,14 +4,17 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.api.app_auth import router as app_auth_router
+from app.api.auth import current_session
 from app.api.google_oauth import router as google_oauth_router
 from app.api.pipeline import router as pipeline_router
 from app.api.system import router as system_router
+from app.core.config import get_settings
 from app.db.session import init_db
 
 
@@ -28,9 +31,34 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(app_auth_router)
 app.include_router(pipeline_router)
 app.include_router(google_oauth_router)
 app.include_router(system_router)
+
+
+@app.middleware("http")
+async def require_app_login(request: Request, call_next):
+    settings = get_settings()
+    if not settings.app_auth_enabled:
+        return await call_next(request)
+
+    path = request.url.path
+    public_prefixes = ("/auth/app", "/health")
+    public_paths = ("/login", "/favicon.ico", "/styles.css", "/app.js")
+    if path in public_paths or path.startswith(public_prefixes):
+        return await call_next(request)
+
+    if current_session(request):
+        return await call_next(request)
+
+    if path.startswith("/api/") or request.method not in {"GET", "HEAD"}:
+        return JSONResponse(
+            {"detail": "Login required."},
+            status_code=401,
+            headers={"WWW-Authenticate": "Cookie"},
+        )
+    return RedirectResponse("/login")
 
 # CORS for dashboard
 app.add_middleware(
@@ -61,5 +89,29 @@ async def root():
     if dashboard_index.exists():
         return FileResponse(dashboard_index)
     return {"message": "Personal AI Outreach Agent API", "docs": "/docs"}
+
+
+@app.get("/login")
+async def login_page():
+    login_index = DASHBOARD_DIR / "login.html"
+    if login_index.exists():
+        return FileResponse(login_index)
+    return {"message": "Login page missing."}
+
+
+@app.get("/styles.css")
+async def dashboard_styles():
+    stylesheet = DASHBOARD_DIR / "styles.css"
+    if stylesheet.exists():
+        return FileResponse(stylesheet, media_type="text/css")
+    return JSONResponse({"detail": "Dashboard stylesheet missing."}, status_code=404)
+
+
+@app.get("/app.js")
+async def dashboard_script():
+    script = DASHBOARD_DIR / "app.js"
+    if script.exists():
+        return FileResponse(script, media_type="application/javascript")
+    return JSONResponse({"detail": "Dashboard script missing."}, status_code=404)
 
 

@@ -1,18 +1,33 @@
-const API_BASE_URL = ["localhost", "127.0.0.1"].includes(window.location.hostname)
+const apiBaseParam = new URLSearchParams(window.location.search).get("apiBase");
+if (apiBaseParam) {
+  localStorage.setItem("OUTREACH_API_BASE_URL", apiBaseParam);
+}
+const storedApiBase = localStorage.getItem("OUTREACH_API_BASE_URL");
+if (!apiBaseParam && ["http://localhost:8000", "http://127.0.0.1:8000"].includes(storedApiBase || "")) {
+  localStorage.setItem("OUTREACH_API_BASE_URL", "http://localhost:8001");
+}
+const API_BASE_URL = localStorage.getItem("OUTREACH_API_BASE_URL") || (["localhost", "127.0.0.1"].includes(window.location.hostname)
   && window.location.port === "3000"
-  ? "http://localhost:8000"
-  : window.location.origin;
+  ? "http://localhost:8001"
+  : window.location.origin);
 const JOB_ROWS_TEMPLATE = "company|title|location|url|description|company_summary|tech_stack|role_fit|source_links|contact_email|contact_name|contact_url|source";
 const CONTACT_CSV_TEMPLATE = "email,first_name,last_name,company,title,source,lead_grade,outreach_status,linkedin_url,notes";
 const INDEED_CSV_TEMPLATE = "source_url,company_name,job_title,location,description,required_skills,contact_email,notes";
+const DEFAULT_DRAFT_CTA = "If your team considers junior candidates for similar roles, I'd be grateful for any advice or direction.";
+const DEFAULT_FOLLOWUP_CTA = "I'd be grateful for any guidance on whether this type of role could be a good fit for someone with my background.";
 const DEFAULT_TARGET_ROLES = [
   "Junior AI Engineer",
-  "Backend Developer",
-  "Software Developer",
-  "Web Developer",
-  "Python Developer",
-  "IT Support",
+  "Junior Backend Developer",
+  "Junior Software Developer",
+  "Entry Level Software Developer",
+  "New Grad Software Developer",
+  "Associate Software Developer",
+  "Junior Web Developer",
+  "Junior Python Developer",
+  "Junior Developer",
+  "IT Support Specialist",
   "QA Analyst",
+  "Junior QA Automation",
   "Automation Developer",
 ];
 const DEFAULT_TARGET_LOCATIONS = [
@@ -67,17 +82,51 @@ const JOB_SOURCE_OPTIONS = [
 const APPLICATION_STATUSES = [
   "SAVED",
   "APPLIED",
-  "CONTACT_SEARCH_NEEDED",
-  "CONTACT_FOUND",
-  "OUTREACH_DRAFTED",
-  "OUTREACH_APPROVED",
-  "OUTREACH_SENT",
-  "REPLIED",
   "INTERVIEW",
   "REJECTED",
   "FOLLOW_UP_DUE",
+  "REPLIED",
+  "OUTREACH_DRAFTED",
+  "OUTREACH_APPROVED",
+  "OUTREACH_SENT",
+  "CONTACT_SEARCH_NEEDED",
+  "CONTACT_FOUND",
   "CLOSED",
 ];
+
+const STATUS_LABELS = {
+  SAVED: "Saved",
+  APPLIED: "Applied",
+  INTERVIEW: "Interview",
+  REJECTED: "Rejected",
+  FOLLOW_UP_DUE: "Follow-up needed",
+  REPLIED: "Replied",
+  OUTREACH_DRAFTED: "Outreach drafted",
+  OUTREACH_APPROVED: "Outreach approved",
+  OUTREACH_SENT: "Outreach sent",
+  CONTACT_SEARCH_NEEDED: "Contact needed",
+  CONTACT_FOUND: "Contact found",
+  CLOSED: "Closed",
+  DISCOVERED: "Discovered",
+  ANALYZED: "Analyzed",
+  COMPANY_RESEARCHED: "Company researched",
+  DRAFTED: "Drafted",
+  PENDING_APPROVAL: "Needs approval",
+  APPROVED: "Approved",
+  SENT: "Sent",
+  pending_approval: "Needs approval",
+  approved: "Approved",
+  sent: "Sent",
+  rejected: "Rejected",
+  waiting: "Reply waiting",
+  interested: "Interested",
+  interview: "Interview",
+  resume_requested: "Resume requested",
+  not_interested: "Not interested",
+  out_of_office: "Out of office",
+  unclear: "Unclear",
+  bounce: "Bounce",
+};
 
 const state = {
   leads: [],
@@ -86,7 +135,10 @@ const state = {
   campaigns: [],
   drafts: [],
   replies: [],
+  gmailAccounts: [],
   auditEvents: [],
+  lastReplySync: null,
+  lastFollowupRun: null,
   readiness: null,
   profile: null,
   selectedLeadId: "",
@@ -116,8 +168,10 @@ const elements = {
   settingsSafetySummary: document.querySelector("#settings-safety-summary"),
   settingsRefresh: document.querySelector("#settings-refresh"),
   connectGmail: document.querySelector("#connect-gmail"),
+  gmailAccountsList: document.querySelector("#gmail-accounts-list"),
   deploymentChecklist: document.querySelector("#deployment-checklist"),
   profileSummary: document.querySelector("#profile-summary"),
+  demoModeSummary: document.querySelector("#demo-mode-summary"),
   dashboardKpis: document.querySelector("#dashboard-kpis"),
   dashboardNextActions: document.querySelector("#dashboard-next-actions"),
   viewTabs: document.querySelectorAll("[data-view-target]"),
@@ -157,12 +211,15 @@ const elements = {
   sentList: document.querySelector("#sent-list"),
   replySummary: document.querySelector("#reply-summary"),
   syncEmailReplies: document.querySelector("#sync-email-replies"),
+  replySyncDetails: document.querySelector("#reply-sync-details"),
   repliesList: document.querySelector("#replies-list"),
   followupSummary: document.querySelector("#followup-summary"),
   followupDays: document.querySelector("#followup-days"),
   followupLimit: document.querySelector("#followup-limit"),
   followupCta: document.querySelector("#followup-cta"),
+  followupSyncFirst: document.querySelector("#followup-sync-first"),
   generateFollowups: document.querySelector("#generate-followups"),
+  followupRunSummary: document.querySelector("#followup-run-summary"),
   followupList: document.querySelector("#followup-list"),
   auditList: document.querySelector("#audit-list"),
   leadCount: document.querySelector("#lead-count"),
@@ -188,7 +245,16 @@ const elements = {
   auditTabCount: document.querySelector("#audit-tab-count"),
   auditShownCount: document.querySelector("#audit-shown-count"),
   toast: document.querySelector("#toast"),
+  confirmModal: document.querySelector("#confirm-modal"),
+  confirmTitle: document.querySelector("#confirm-title"),
+  confirmMessage: document.querySelector("#confirm-message"),
+  confirmOk: document.querySelector("#confirm-ok"),
+  confirmCancel: document.querySelector("#confirm-cancel"),
 };
+
+if (elements.followupCta?.value?.includes("\u00e2")) {
+  elements.followupCta.value = "I'd be grateful for any guidance on whether this type of role could be a good fit for someone with my background.";
+}
 
 async function api(path, options = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -307,9 +373,14 @@ function renderTagEditor(editor) {
   const values = uniqueList(parseList(textarea.value));
   const list = editor.querySelector(".tag-list");
   const suggestions = editor.querySelector(".tag-suggestions");
+  const count = editor.querySelector(".tag-count");
   const suggestionValues = tagSuggestionsForField(textarea.name).filter(
     (item) => !values.some((value) => value.toLowerCase() === item.toLowerCase()),
   );
+
+  if (count) {
+    count.textContent = `${values.length} selected`;
+  }
 
   list.innerHTML = values.length
     ? values.map((value) => (
@@ -345,6 +416,10 @@ function setupTagEditors(root = document) {
     const editor = document.createElement("div");
     editor.className = "tag-editor";
     editor.innerHTML = `
+      <div class="tag-editor-header">
+        <span class="tag-count">0 selected</span>
+        <small>Add one value or paste comma-separated values.</small>
+      </div>
       <div class="tag-list"></div>
       <div class="tag-input-row">
         <input class="tag-input" type="text" placeholder="Add one item, or paste several separated by commas">
@@ -650,8 +725,32 @@ function showToast(message, type = "info") {
   }, type === "error" ? 5200 : 3200);
 }
 
-function confirmAction(message) {
-  return window.confirm(message);
+let pendingConfirmResolve = null;
+
+function closeConfirmModal(result) {
+  if (!elements.confirmModal || !pendingConfirmResolve) return;
+  elements.confirmModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  const resolve = pendingConfirmResolve;
+  pendingConfirmResolve = null;
+  resolve(result);
+}
+
+function confirmAction(message, options = {}) {
+  if (!elements.confirmModal) {
+    return Promise.resolve(window.confirm(message));
+  }
+  return new Promise((resolve) => {
+    pendingConfirmResolve = resolve;
+    elements.confirmTitle.textContent = options.title || "Confirm Action";
+    elements.confirmMessage.textContent = message;
+    elements.confirmOk.textContent = options.confirmLabel || "Confirm";
+    elements.confirmCancel.textContent = options.cancelLabel || "Cancel";
+    elements.confirmOk.className = options.tone === "danger" ? "danger-action" : "";
+    elements.confirmModal.hidden = false;
+    document.body.classList.add("modal-open");
+    elements.confirmCancel.focus();
+  });
 }
 
 async function withButtonState(button, workingLabel, doneLabel, action) {
@@ -725,6 +824,24 @@ function sourceLabel(lead) {
   return source.replace(/_/g, " ");
 }
 
+function dashboardSourceBucket(lead) {
+  const text = `${lead.source || ""} ${lead.opportunity_url || ""} ${lead.linkedin_url || ""} ${lead.contact_source_url || ""}`.toLowerCase();
+  if (text.includes("linkedin")) return "LinkedIn";
+  if (text.includes("indeed")) return "Indeed";
+  if (text.includes("remotive")) return "Remotive";
+  if (text.includes("remoteok")) return "RemoteOK";
+  if (text.includes("career") || text.includes("greenhouse") || text.includes("lever") || text.includes("ashby") || text.includes("workday")) return "Career Page";
+  if (text.includes("adzuna")) return "Adzuna";
+  return "Manual";
+}
+
+function fitBand(score) {
+  if (score === null || score === undefined) return "Unknown";
+  if (Number(score) >= 85) return "High Fit";
+  if (Number(score) >= 70) return "Medium Fit";
+  return "Low Fit";
+}
+
 function isLinkedInSource(lead) {
   return sourceLabel(lead).toLowerCase().includes("linkedin")
     || /linkedin\.com/i.test(`${lead.opportunity_url || ""} ${lead.linkedin_url || ""} ${lead.contact_source_url || ""}`);
@@ -763,13 +880,21 @@ function displayOpportunityStage(lead) {
   return lead.outreach_status || (isOpportunity(lead) ? "Opportunity Discovered" : "Contact Found");
 }
 
+function displayStatusLabel(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return STATUS_LABELS[text] || text
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function nextStepLabel(lead) {
   const activeDraft = activeDraftForLead(lead.id);
   if (activeDraft) return "Review Draft";
   const stage = displayOpportunityStage(lead);
   if (stage === "DISCOVERED" || lead.fit_score === null || lead.fit_score === undefined) return "Run Next: Analyze";
   if (stage === "ANALYZED" || !lead.company_summary) return "Run Next: Research";
-  if (stage === "COMPANY_RESEARCHED") return "Run Next: Find Contact";
+  if (stage === "COMPANY_RESEARCHED" || stage === "CONTACT_SEARCH_NEEDED") return "Run Next: Find Contact";
   if (stage === "CONTACT_FOUND") return "Run Next: Draft";
   if (stage === "PENDING_APPROVAL") return "Review Draft";
   if (stage === "APPROVED") return "Send / Dry Run";
@@ -786,7 +911,40 @@ function truncate(value, maxLength = 180) {
 
 function badge(value) {
   const className = String(value || "").replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
-  return `<span class="badge ${escapeHtml(className)}">${escapeHtml(value)}</span>`;
+  return `<span class="badge ${escapeHtml(className)}">${escapeHtml(displayStatusLabel(value))}</span>`;
+}
+
+function draftGeneratorLabel(draft) {
+  if (draft.generated_by === "ai_drafting_agent") return "AI draft";
+  if (draft.generated_by === "mock_generator") return "Fallback draft";
+  return draft.generated_by ? draft.generated_by.replace(/_/g, " ") : "Draft";
+}
+
+function draftGenerationStatus(draft) {
+  const context = String(draft.context_summary || "").toLowerCase();
+  if (draft.generated_by === "ai_drafting_agent") return "Generated by the configured LLM.";
+  if (context.includes("ai drafting unavailable") || context.includes("local fallback")) {
+    return "LLM was unavailable or returned an invalid response, so the app used the local fallback.";
+  }
+  return "Generated by the local drafting workflow.";
+}
+
+function compactDraftContext(summary) {
+  const text = String(summary || "").trim();
+  if (!text) return "No generation context saved.";
+
+  const parts = [];
+  const source = text.match(/Contact source:\s*([^\.]+)/i)?.[1]?.trim();
+  const objective = text.match(/Objective:\s*([^\.]+)/i)?.[1]?.trim();
+  const lower = text.toLowerCase();
+
+  if (source) parts.push(`Source: ${source}`);
+  if (objective) parts.push(`Goal: ${objective}`);
+  if (lower.includes("ai drafting unavailable") || lower.includes("local fallback")) {
+    parts.push("Fallback used");
+  }
+
+  return parts.length ? parts.join(" · ") : truncate(text, 180);
 }
 
 function filteredLeads() {
@@ -902,6 +1060,13 @@ function sentDrafts() {
     .sort((a, b) => new Date(b.sent_at || b.created_at) - new Date(a.sent_at || a.created_at));
 }
 
+function daysSinceDate(value) {
+  if (!value) return 0;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 0;
+  return Math.floor((Date.now() - date.getTime()) / 86400000);
+}
+
 function repliesForLead(leadId) {
   return state.replies
     .filter((reply) => reply.lead_id === leadId)
@@ -910,10 +1075,15 @@ function repliesForLead(leadId) {
 
 function followupLeads() {
   const repliedLeadIds = new Set(state.replies.map((reply) => reply.lead_id));
+  const followupWindowDays = Math.max(0, Number(elements.followupDays?.value || 3));
   return state.leads.filter((lead) => {
     if (["FOLLOW_UP_DUE", "Follow-up Due"].includes(displayOpportunityStage(lead))) return true;
     const sentDraft = state.drafts.find((draft) => draft.lead_id === lead.id && draft.status === "sent");
-    return Boolean(sentDraft && !repliedLeadIds.has(lead.id));
+    return Boolean(
+      sentDraft
+      && !repliedLeadIds.has(lead.id)
+      && daysSinceDate(sentDraft.sent_at || sentDraft.created_at) >= followupWindowDays,
+    );
   });
 }
 
@@ -931,7 +1101,7 @@ function auditEventsForLead(lead, application, drafts, replies) {
 
 function applicationStatusOptions(currentStatus) {
   return APPLICATION_STATUSES.map((status) => (
-    `<option value="${escapeHtml(status)}" ${status === currentStatus ? "selected" : ""}>${escapeHtml(status)}</option>`
+    `<option value="${escapeHtml(status)}" ${status === currentStatus ? "selected" : ""}>${escapeHtml(displayStatusLabel(status))}</option>`
   )).join("");
 }
 
@@ -952,7 +1122,8 @@ function renderQueueSummary() {
     ["APPLIED", applications.APPLIED || 0, "success"],
     ["INTERVIEW", applications.INTERVIEW || 0, "success"],
     ["ANALYZED", stageCount(outreach, "ANALYZED"), "muted-card"],
-    ["COMPANY_RESEARCHED", stageCount(outreach, "COMPANY_RESEARCHED", "Company Researched", "Contact Search Needed"), "muted-card"],
+    ["COMPANY_RESEARCHED", stageCount(outreach, "COMPANY_RESEARCHED", "Company Researched"), "muted-card"],
+    ["CONTACT_SEARCH_NEEDED", stageCount(outreach, "CONTACT_SEARCH_NEEDED", "Contact Search Needed"), "warning"],
     ["CONTACT_FOUND", stageCount(outreach, "CONTACT_FOUND", "Contact Found"), "success"],
     ["PENDING_APPROVAL", stageCount(outreach, "PENDING_APPROVAL", "Pending Approval"), "warning"],
     ["Drafts Pending", draftPending, "warning"],
@@ -978,7 +1149,7 @@ function renderReadiness() {
   const checks = [
     ["Database", readiness.database.connected, "Connected", "Unavailable"],
     ["AI drafting", readiness.ai.enabled, "Enabled", "Fallback mode"],
-    ["LLM provider key", readiness.ai?.provider_key_configured, "Configured", "Not set"],
+    ["LLM gateway key", readiness.ai?.provider_key_configured, "Configured", "Not set"],
     [
       `Email: ${readiness.email?.provider || "provider"}`,
       readiness.email?.configured,
@@ -1001,11 +1172,59 @@ function renderReadiness() {
 }
 
 function settingCard(label, value, detail, enabled = true) {
+  const renderedValue = String(value ?? "");
+  const compactValue = renderedValue.length > 18 || renderedValue.includes("@") || renderedValue.includes("/");
   return `
-    <div class="summary-card setting-summary-card ${enabled ? "success" : "muted-card"}">
-      <strong>${escapeHtml(value)}</strong>
+    <div class="summary-card setting-summary-card ${compactValue ? "compact-value" : ""} ${enabled ? "success" : "muted-card"}">
+      <strong>${escapeHtml(renderedValue)}</strong>
       <span>${escapeHtml(label)}</span>
       <small>${escapeHtml(detail)}</small>
+    </div>
+  `;
+}
+
+function settingRow(label, value, detail, enabled = true) {
+  return `
+    <div class="settings-row">
+      <div>
+        <strong>${escapeHtml(label)}</strong>
+        <small>${escapeHtml(detail)}</small>
+      </div>
+      <span class="badge ${enabled ? "pass" : "needed"}">${escapeHtml(String(value ?? ""))}</span>
+    </div>
+  `;
+}
+
+function gmailState() {
+  const gmail = state.readiness?.gmail || {};
+  const expected = gmail.expected_account_email || "";
+  const active = gmail.active_account_email || "";
+  const dbDefault = gmail.default_account_email || "";
+  const expectedConnected = Boolean(gmail.expected_account_connected);
+  const matchesExpected = !expected || active === expected;
+  return {
+    expected,
+    active,
+    dbDefault,
+    expectedConnected,
+    matchesExpected,
+    operational: Boolean(active && matchesExpected && gmail.refresh_token_configured),
+  };
+}
+
+function gmailConnectUrl() {
+  const expected = gmailState().expected;
+  return `${API_BASE_URL}/auth/google/start${expected ? `?email=${encodeURIComponent(expected)}` : ""}`;
+}
+
+function gmailMismatchNotice() {
+  const gmail = gmailState();
+  if (!gmail.expected || gmail.matchesExpected) return "";
+  const current = gmail.dbDefault || "none connected";
+  return `
+    <div class="settings-warning">
+      <strong>Real Gmail is not the active mailbox</strong>
+      <span>Expected ${escapeHtml(gmail.expected)}, but the current database default is ${escapeHtml(current)}. Connect the real Gmail OAuth account again; the app will make it default automatically.</span>
     </div>
   `;
 }
@@ -1013,18 +1232,17 @@ function settingCard(label, value, detail, enabled = true) {
 function renderProfileSummary() {
   if (!elements.profileSummary || !state.profile) return;
   const profile = state.profile;
-  const cards = [
-    ["Owner", profile.owner_name || "Not set", "Displayed in generated context", Boolean(profile.owner_name)],
-    ["Primary Email", profile.primary_email || "Not set", "Your real job-search email", Boolean(profile.primary_email)],
-    ["Outreach Email", profile.outreach_email || "Not set", "Email identity used for outreach context", Boolean(profile.outreach_email)],
-    ["Target Roles", String((profile.target_roles || []).length), "Roles used for discovery and fit scoring", Boolean((profile.target_roles || []).length)],
-    ["Target Locations", String((profile.target_locations || []).length), "Canada and remote preferences", Boolean((profile.target_locations || []).length)],
-    ["Target Skills", String((profile.target_skills || []).length), "Skills used for matching", Boolean((profile.target_skills || []).length)],
-  ];
-
-  elements.profileSummary.innerHTML = cards.map(([label, value, detail, enabled]) => (
-    settingCard(label, value, detail, enabled)
-  )).join("");
+  const roles = (profile.target_roles || []).length;
+  const locations = (profile.target_locations || []).length;
+  const skills = (profile.target_skills || []).length;
+  elements.profileSummary.innerHTML = `
+    <span><strong>${escapeHtml(profile.owner_name || "Profile owner not set")}</strong></span>
+    <span>${escapeHtml(profile.primary_email || "Primary email not set")}</span>
+    <span>${escapeHtml(profile.outreach_email || "Outreach email not set")}</span>
+    <span>${roles} roles</span>
+    <span>${locations} locations</span>
+    <span>${skills} skills</span>
+  `;
 }
 
 function renderSettingsOverview() {
@@ -1038,55 +1256,152 @@ function renderSettingsOverview() {
   }
 
   if (elements.settingsReadinessSummary) {
-    const sender = readiness.email?.sender_email || readiness.gmail?.sender_email || "Not set";
-    const inbox = readiness.email?.inbox_email || readiness.gmail?.inbox_email || sender;
+    const gmail = gmailState();
+    const sender = gmail.active || readiness.email?.sender_email || readiness.gmail?.sender_email || "Not set";
     const primaryModel = readiness.ai?.primary_model || "not set";
     const fastModel = readiness.ai?.fast_model || "not set";
+    const budgetCad = readiness.ai?.monthly_budget_cad || 20;
+    const budgetUsd = readiness.ai?.monthly_budget_usd || 14;
+    const sourceCount = [
+      readiness.job_sources?.remotive_configured,
+      readiness.job_sources?.remoteok_configured,
+      readiness.job_sources?.adzuna_configured,
+    ].filter(Boolean).length;
     const cards = [
-      ["Database", readiness.database?.connected ? "Connected" : "Unavailable", "Required for pipeline state", readiness.database?.connected],
-      ["Gmail OAuth", readiness.gmail?.refresh_token_configured ? "Connected" : "Needs OAuth", "Required for Gmail send/reply sync", readiness.gmail?.refresh_token_configured],
-      ["Sender", sender, "Configured sender identity", Boolean(readiness.email?.sender_email || readiness.gmail?.sender_email)],
-      ["Inbox", inbox || "Not set", "Reply sync mailbox", Boolean(inbox)],
-      ["AI Drafting", readiness.ai?.enabled ? "Enabled" : "Fallback", "Set AI_DRAFTING_ENABLED=true to use the LLM", readiness.ai?.enabled],
-      ["LLM Provider Key", readiness.ai?.provider_key_configured ? "Configured" : "Not set", "ANTHROPIC_API_KEY behind LiteLLM", readiness.ai?.provider_key_configured],
-      ["LiteLLM Proxy", readiness.ai?.litellm_configured ? "Configured" : "Not set", "Model routing and budgets", readiness.ai?.litellm_configured],
-      ["Models", `${primaryModel} / ${fastModel}`, "Primary / fast model aliases", Boolean(readiness.ai?.primary_model)],
-      ["Automation Token", readiness.automation?.token_required ? "Required" : "Local open", "Protects machine-triggered routes", true],
+      ["App Access", readiness.access?.auth_enabled ? "Login required" : "Local open", "Use login before Cloud Run public deployment", !readiness.access?.auth_enabled],
+      ["Database", readiness.database?.connected ? "Connected" : "Unavailable", "Pipeline state and audit logs", readiness.database?.connected],
+      [
+        "Gmail",
+        gmail.operational ? "Connected" : "Needs real Gmail",
+        gmail.expected ? `Expected ${gmail.expected}; active ${sender}` : sender,
+        gmail.operational,
+      ],
+      ["AI Gateway", readiness.ai?.provider_key_configured ? "Ready" : "Needs key", `${primaryModel} / ${fastModel}, C$${budgetCad} cap`, readiness.ai?.provider_key_configured],
+      ["Job Sources", `${sourceCount}/3 ready`, "Remotive, RemoteOK, Adzuna Canada", sourceCount >= 2],
     ];
-    elements.settingsReadinessSummary.innerHTML = cards.map(([label, value, detail, enabled]) => (
-      settingCard(label, value, detail, enabled)
-    )).join("");
+    elements.settingsReadinessSummary.innerHTML = `
+      <h3>Setup</h3>
+      ${gmailMismatchNotice()}
+      ${cards.map(([label, value, detail, enabled]) => (
+        settingRow(label, value, detail, enabled)
+      )).join("")}
+    `;
   }
 
   if (elements.settingsSafetySummary) {
     const cards = [
-      ["Human Approval", "Required", "Drafts must be approved before send", true],
-      ["Live Sending", readiness.email?.sending_enabled ? "Enabled" : "Dry Run", "LIVE_SEND=false is safest while testing", !readiness.email?.sending_enabled],
-      ["Reply Sync", readiness.email?.reply_sync_enabled ? "Enabled" : "Manual/Disabled", "Can sync Gmail replies when enabled", readiness.email?.reply_sync_enabled],
-      ["LinkedIn", "Manual Only", "No scraping or auto-messaging", true],
-      ["Secrets", "Server Only", "Tokens and client secrets stay out of the dashboard", true],
+      ["Human Approval", "Required", "You review every draft before send", true],
+      ["Gmail Sending", readiness.email?.sending_enabled ? "Live" : "Dry run", "Keep dry run for testing and demos", !readiness.email?.sending_enabled],
+      ["Reply Sync", readiness.email?.reply_sync_enabled ? "Enabled" : "Manual", "Can be enabled after send flow is tested", true],
+      ["LinkedIn / Indeed", "Manual-safe", "Track URLs and pasted descriptions only", true],
+      ["Secrets", "Backend only", "Keys are never shown in the dashboard", true],
     ];
-    elements.settingsSafetySummary.innerHTML = cards.map(([label, value, detail, enabled]) => (
-      settingCard(label, value, detail, enabled)
-    )).join("");
+    elements.settingsSafetySummary.innerHTML = `
+      <h3>Safety Rules</h3>
+      ${cards.map(([label, value, detail, enabled]) => (
+        settingRow(label, value, detail, enabled)
+      )).join("")}
+    `;
   }
 
   if (elements.deploymentChecklist) {
+    const gmail = gmailState();
     const checklist = [
       ["Database ready", readiness.database?.connected],
-      ["Gmail OAuth configured", readiness.gmail?.configured],
-      ["Sender email set", readiness.gmail?.sender_configured],
+      ["Real Gmail OAuth configured", gmail.operational],
+      ["Sender email is real Gmail", gmail.matchesExpected && Boolean(gmail.active)],
       ["Human approval enforced", readiness.safety?.human_approval_required],
       ["Live send intentionally configured", !readiness.email?.sending_enabled || readiness.email?.configured],
       ["LLM decision pending", !readiness.ai?.enabled || readiness.ai?.provider_key_configured],
     ];
     elements.deploymentChecklist.innerHTML = checklist.map(([label, done]) => `
-      <div class="checklist-item ${done ? "done" : "pending"}">
+      <div class="checklist-item compact ${done ? "done" : "pending"}">
         <span>${done ? "Ready" : "Needed"}</span>
         <strong>${escapeHtml(label)}</strong>
       </div>
     `).join("");
   }
+}
+
+function renderGmailAccounts() {
+  if (!elements.gmailAccountsList) return;
+  const notice = gmailMismatchNotice();
+  if (!state.gmailAccounts.length) {
+    elements.gmailAccountsList.innerHTML = `
+      ${notice}
+      <div class="empty">
+        No database-stored Gmail accounts yet. Connect Gmail OAuth to add your real job-search Gmail.
+      </div>
+    `;
+    return;
+  }
+  elements.gmailAccountsList.innerHTML = `
+    ${notice}
+    <table>
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Purpose</th>
+          <th>Default</th>
+          <th>Capabilities</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${state.gmailAccounts.map((account) => `
+          <tr>
+            <td>
+              <strong>${escapeHtml(account.email)}</strong>
+              ${account.is_default ? `<br><small class="muted">Active job-search Gmail</small>` : ""}
+            </td>
+            <td>${escapeHtml(account.purpose || "job_search")}</td>
+            <td>${badge(account.is_default ? "default" : "available")}</td>
+            <td>
+              ${account.send_enabled ? badge("send") : badge("send off")}
+              ${account.reply_sync_enabled ? badge("reply sync") : badge("sync off")}
+            </td>
+            <td class="action-cell">
+              ${account.is_default ? "" : `<button class="secondary" type="button" data-gmail-default="${escapeHtml(account.id)}">Make Default</button>`}
+              ${account.is_default ? "" : `<button class="danger small-action" type="button" data-gmail-delete="${escapeHtml(account.id)}" data-gmail-email="${escapeHtml(account.email)}">Disconnect</button>`}
+            </td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function compactEmail(value) {
+  const text = String(value || "").trim();
+  if (!text) return "Not connected";
+  if (text.length <= 24) return text;
+  const [name, domain] = text.split("@");
+  if (!domain) return `${text.slice(0, 21)}...`;
+  return `${name.slice(0, 16)}...@${domain}`;
+}
+
+function relatedAuditLabel(event) {
+  const lead = state.leads.find((item) => item.id === event.entity_id);
+  if (lead) return [lead.company, lead.title].filter(Boolean).join(" - ");
+  const application = state.applications.find((item) => item.id === event.entity_id);
+  if (application) return [application.company_name, application.job_title].filter(Boolean).join(" - ");
+  const draft = state.drafts.find((item) => item.id === event.entity_id);
+  if (draft) {
+    const draftLead = state.leads.find((item) => item.id === draft.lead_id);
+    return [draftLead?.company, draftLead?.title].filter(Boolean).join(" - ");
+  }
+  const reply = state.replies.find((item) => item.id === event.entity_id);
+  if (reply) {
+    const replyLead = state.leads.find((item) => item.id === reply.lead_id);
+    return [replyLead?.company, replyLead?.title].filter(Boolean).join(" - ");
+  }
+  return "";
+}
+
+function humanizeAction(value) {
+  return String(value || "workflow event")
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function renderDashboardOverview() {
@@ -1095,49 +1410,273 @@ function renderDashboardOverview() {
   const applications = countBy(state.applications, "status");
   const pendingDrafts = state.drafts.filter((draft) => draft.status === "pending_approval").length;
   const approvedDrafts = state.drafts.filter((draft) => draft.status === "approved").length;
-  const sentDrafts = state.drafts.filter((draft) => draft.status === "sent").length;
+  const sent = sentDrafts();
   const contacts = state.leads.filter(hasUsableContact).length;
-  const followups = state.leads.filter((lead) => displayOpportunityStage(lead) === "FOLLOW_UP_DUE").length;
+  const followups = followupLeads().length;
+  const realSourceCounts = countBy(state.leads.map((lead) => ({ bucket: dashboardSourceBucket(lead) })), "bucket");
+  const realFitCounts = countBy(state.leads.map((lead) => ({ band: fitBand(lead.fit_score) })), "band");
+  const researched = state.leads.filter((lead) => lead.company_summary || lead.role_fit || lead.tech_stack).length;
+  const contactNeeded = state.leads.filter((lead) => (
+    !hasUsableContact(lead)
+    && ["COMPANY_RESEARCHED", "CONTACT_SEARCH_NEEDED"].includes(String(lead.outreach_status || ""))
+  )).length;
+  const budgetCad = state.readiness?.ai?.monthly_budget_cad || 20;
+  const llmConfigured = Boolean(state.readiness?.ai?.enabled && state.readiness?.ai?.provider_key_configured);
+  const gmailConnected = Boolean(state.readiness?.gmail?.refresh_token_configured || state.gmailAccounts.length);
+  const liveSendingOff = !state.readiness?.email?.sending_enabled;
+  const defaultGmail = state.gmailAccounts.find((account) => account.is_default)?.email
+    || state.readiness?.gmail?.sender_email
+    || state.readiness?.email?.sender_email
+    || "Not connected";
 
-  const cards = [
-    ["Opportunities", state.leads.length, "Total tracked targets"],
-    ["Applications", state.applications.length, `${applications.APPLIED || 0} applied`],
-    ["Need Research", stageCount(outreach, "DISCOVERED", "ANALYZED"), "Ready for safe batch"],
-    ["Contact Found", stageCount(outreach, "CONTACT_FOUND") || contacts, "Ready for draft decision"],
-    ["Draft Review", pendingDrafts, `${approvedDrafts} approved`],
-    ["Sent", sentDrafts, `${state.replies.length} replies tracked`],
+  if (elements.demoModeSummary) {
+    const summaryCards = [
+      ["Run Mode", liveSendingOff ? "Dry run active" : "Live mode", liveSendingOff, "Safe testing mode for Gmail outreach."],
+      ["Gmail", gmailConnected ? "Connected" : "Needs OAuth", gmailConnected, compactEmail(defaultGmail)],
+      ["LLM", llmConfigured ? "Configured" : "Fallback", llmConfigured, state.readiness?.ai?.primary_model || "Gemini gateway can be added."],
+      ["Live Sending", liveSendingOff ? "Off" : "On", liveSendingOff, "Every message still needs approval."],
+      ["Budget Guardrails", `C$${budgetCad}/mo cap`, true, "LiteLLM monthly cap for AI usage."],
+      ["Approval", "Required", true, "No send without human review."],
+    ];
+    elements.demoModeSummary.innerHTML = summaryCards.map(([label, value, ok, detail]) => `
+      <div class="demo-mode-card ${ok ? "ok" : "warning"}">
+        <strong>${escapeHtml(label)}</strong>
+        <span>${escapeHtml(value)}</span>
+        <small>${escapeHtml(detail)}</small>
+      </div>
+    `).join("");
+  }
+
+  const workflowSteps = [
+    ["1", "Import job", "job-discovery"],
+    ["2", "Analyze fit", "opportunities:DISCOVERED"],
+    ["3", "Research company", "company-research"],
+    ["4", "Find contact", "contact-finder"],
+    ["5", "Generate draft", "opportunities:CONTACT_FOUND"],
+    ["6", "Approve", "drafts"],
+    ["7", "Send email", "gmail-outreach"],
+    ["8", "Sync replies", "replies"],
+    ["9", "Follow up", "followups"],
+  ];
+  const actionCards = [
+    ["Review drafts", `${pendingDrafts} waiting`, "Approval queue", "Edit or approve generated Gmail drafts.", "drafts"],
+    ["Apply saved jobs", `${applications.SAVED || 0} saved`, "Applications", "Open saved roles and mark them applied after you apply on the source site.", "applications:SAVED"],
+    ["Research companies", `${Math.max(0, state.leads.length - researched)} needed`, "Company research", "Add public context before contact search and drafting.", "company-research"],
+    ["Find contacts", `${contactNeeded} needed`, "Contact finder", "Look for public recruiter, HR, careers email, or contact page.", "contact-finder"],
+    ["Sync replies", `${sent.length} sent`, "Replies", "Fetch Gmail replies before follow-up decisions.", "replies"],
+    ["Follow up", `${followups} due`, "Follow-ups", "Create approval-required follow-up drafts after the waiting window.", "followups"],
+  ];
+  const pipelineStages = [
+    ["Discovered", stageCount(outreach, "DISCOVERED", "Opportunity Discovered"), "opportunities:DISCOVERED"],
+    ["Analyzed", stageCount(outreach, "ANALYZED"), "opportunities:ANALYZED"],
+    ["Company researched", stageCount(outreach, "COMPANY_RESEARCHED"), "company-research"],
+    ["Contact needed", stageCount(outreach, "CONTACT_SEARCH_NEEDED"), "contact-finder"],
+    ["Applied", applications.APPLIED || 0, "applications:APPLIED"],
+    ["Contact found", stageCount(outreach, "CONTACT_FOUND") || contacts, "contact-finder"],
+    ["Draft review", pendingDrafts, "drafts"],
+    ["Approved", approvedDrafts, "gmail-outreach"],
+    ["Sent", sent.length, "gmail-outreach"],
+    ["Replied", state.replies.length, "replies"],
+    ["Follow-up due", followups, "followups"],
   ];
 
-  elements.dashboardKpis.innerHTML = cards.map(([label, value, detail]) => `
-    <div class="metric-card">
-      <span>${escapeHtml(label)}</span>
-      <strong>${escapeHtml(value)}</strong>
-      <small>${escapeHtml(detail)}</small>
-    </div>
-  `).join("");
+  elements.dashboardKpis.innerHTML = `
+    <section class="demo-flow-section" aria-label="Workflow shortcuts">
+      <div class="next-action-header">
+        <div>
+          <h3>Workflow</h3>
+          <p class="muted compact-copy">Move real opportunities through discovery, applications, outreach, replies, and follow-ups.</p>
+        </div>
+      </div>
+      <div class="demo-flow-grid">
+        ${workflowSteps.map(([number, label, target]) => `
+          <button class="demo-step" type="button" data-dashboard-target="${escapeHtml(target)}">
+            <strong>${escapeHtml(number)}</strong>
+            <span>${escapeHtml(label)}</span>
+          </button>
+        `).join("")}
+      </div>
+    </section>
+    <section class="action-queue-section">
+      <div class="next-action-header">
+        <div>
+          <h3>Action Queue</h3>
+          <p class="muted compact-copy">The next human-approved actions that move the pipeline forward.</p>
+        </div>
+      </div>
+      <div class="action-queue-grid">
+        ${actionCards.map(([label, countText, actionLabel, detail, target]) => `
+          <button class="action-card ${parseInt(countText, 10) ? "active" : ""}" type="button" data-dashboard-target="${escapeHtml(target)}">
+            <strong>${escapeHtml(label)}</strong>
+            <span>${escapeHtml(countText)}</span>
+            <small>${escapeHtml(detail)}</small>
+            <em>${escapeHtml(actionLabel)}</em>
+          </button>
+        `).join("")}
+      </div>
+    </section>
+    <section class="pipeline-board" aria-label="Automation pipeline">
+      <div class="next-action-header">
+        <div>
+          <h3>Pipeline Overview</h3>
+          <p class="muted compact-copy">Every stage is clickable and opens the matching workflow area.</p>
+        </div>
+        <span class="status-pill">Human approved</span>
+      </div>
+      <div class="pipeline-track">
+        ${pipelineStages.map(([label, count, target]) => `
+          <button class="pipeline-stage ${count ? "active" : ""}" type="button" data-dashboard-target="${escapeHtml(target)}">
+            <strong>${escapeHtml(count)}</strong>
+            <span>${escapeHtml(label)}</span>
+          </button>
+        `).join("")}
+      </div>
+    </section>
+  `;
 
-  const actionRows = [
-    ["Run safe batch", stageCount(outreach, "DISCOVERED", "ANALYZED", "COMPANY_RESEARCHED"), "Opportunities"],
-    ["Review drafts", pendingDrafts, "Drafts / Approval Queue"],
-    ["Send approved", approvedDrafts, "Gmail Outreach"],
-    ["Check replies", sentDrafts, "Replies"],
-    ["Follow up", followups, "Follow-ups"],
+  const sourceCounts = realSourceCounts;
+  const sourceColors = {
+    LinkedIn: "#334e8f",
+    Indeed: "#0f766e",
+    Remotive: "#237346",
+    RemoteOK: "#9a6400",
+    "Career Page": "#52677b",
+    Adzuna: "#0e7490",
+    Manual: "#9aa7b5",
+  };
+  const totalSourceCount = Math.max(1, Object.values(sourceCounts).reduce((total, count) => total + count, 0));
+  let sourceCursor = 0;
+  const sourceRows = Object.entries(sourceColors).map(([label, color]) => ({
+    label,
+    color,
+    count: sourceCounts[label] || 0,
+  })).filter((row) => row.count > 0);
+  const sourceGradient = sourceRows.map((row) => {
+    const start = sourceCursor;
+    sourceCursor += (row.count / totalSourceCount) * 100;
+    return `${row.color} ${start}% ${sourceCursor}%`;
+  }).join(", ") || "#edf2f6 0% 100%";
+  const scoredCount = state.leads.filter((lead) => lead.fit_score !== null && lead.fit_score !== undefined).length;
+  const fitCounts = realFitCounts;
+  const fitRows = [
+    ["High Fit", fitCounts["High Fit"] || 0, "#237346"],
+    ["Medium Fit", fitCounts["Medium Fit"] || 0, "#9a6400"],
+    ["Low Fit", fitCounts["Low Fit"] || 0, "#b43b3b"],
+    ["Unknown", fitCounts.Unknown || 0, "#9aa7b5"],
+  ];
+  const maxFitCount = Math.max(1, ...fitRows.map(([, count]) => count));
+  const recentEvents = state.auditEvents
+    .slice()
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 10);
+  const activeCampaign = state.campaigns[0];
+  const guardrails = [
+    ["LIVE_SEND", liveSendingOff ? "false / Dry-run active" : "true / Live sending"],
+    ["REQUIRE_APPROVAL", "true"],
+    ["MAX_JOBS_PER_RUN", state.readiness?.job_sources?.max_jobs_per_search_run || 30],
+    ["MAX_LLM_CALLS_PER_DAY", state.readiness?.ai?.max_llm_calls_per_day || 50],
+    ["MONTHLY_LLM_BUDGET", `C$${budgetCad}`],
+    ["Default model", state.readiness?.ai?.primary_model || "not set"],
   ];
 
   elements.dashboardNextActions.innerHTML = `
-    <div class="next-action-header">
-      <h3>Next Work</h3>
-      <span class="muted">Safe actions stay human-approved before sending.</span>
-    </div>
-    <div class="next-action-grid">
-      ${actionRows.map(([label, count, target]) => `
-        <div class="next-action-item">
-          <strong>${escapeHtml(count)}</strong>
-          <span>${escapeHtml(label)}</span>
-          <small>${escapeHtml(target)}</small>
+    <section class="analytics-grid" aria-label="Dashboard analytics">
+      <article class="chart-card">
+        <div class="chart-header">
+          <h3>Source Breakdown</h3>
+          <span>${state.leads.length} opportunities</span>
         </div>
-      `).join("")}
-    </div>
+        ${sourceRows.length ? `<div class="donut-row">
+          <div class="donut-chart" style="background: conic-gradient(${sourceGradient});" aria-hidden="true"></div>
+          <div class="legend-list">
+            ${sourceRows.map((row) => `
+              <div class="legend-row">
+                <span class="legend-dot" style="background:${row.color}"></span>
+                <strong>${escapeHtml(row.label)}</strong>
+                <small>${escapeHtml(row.count)}</small>
+              </div>
+            `).join("")}
+          </div>
+        </div>` : `
+          <div class="empty dashboard-empty">No opportunities yet. Import from LinkedIn, Indeed, Remotive, RemoteOK, a career page, or Manual.</div>
+        `}
+      </article>
+      <article class="chart-card">
+        <div class="chart-header">
+          <h3>Fit Score Distribution</h3>
+          <span>Role, location, and skill match</span>
+        </div>
+        ${scoredCount ? `<div class="fit-bars">
+          ${fitRows.map(([label, count, color]) => `
+            <div class="fit-bar-row">
+              <span>${escapeHtml(label)}</span>
+              <div class="fit-bar"><i style="width:${Math.max(3, Math.round((count / maxFitCount) * 100))}%; background:${color}"></i></div>
+              <strong>${escapeHtml(count)}</strong>
+            </div>
+          `).join("")}
+        </div>` : `
+          <div class="empty dashboard-empty">
+            No fit scores yet. Run Analyze Fit to populate this chart.
+            <button class="secondary inline-action" type="button" data-dashboard-target="opportunities:DISCOVERED">Analyze Fit</button>
+          </div>
+        `}
+      </article>
+    </section>
+    <section class="dashboard-info-grid">
+      <article class="dashboard-info-card">
+        <div class="chart-header">
+          <h3>Active Campaign</h3>
+          <span>${activeCampaign ? "Configured" : "Not created"}</span>
+        </div>
+        ${activeCampaign ? `
+          <dl class="compact-definition-list">
+            <div><dt>Campaign name</dt><dd>${escapeHtml(activeCampaign.name || "Untitled campaign")}</dd></div>
+            <div><dt>Module</dt><dd>${escapeHtml(activeCampaign.module || "Job Search")}</dd></div>
+            <div><dt>Objective</dt><dd>${escapeHtml(activeCampaign.objective || "No objective saved")}</dd></div>
+            <div><dt>Current status</dt><dd>${escapeHtml(activeCampaign.status || "active")}</dd></div>
+          </dl>
+          <button class="secondary" type="button" data-dashboard-target="settings:campaign">View / Edit Campaign</button>
+        ` : `
+          <div class="empty dashboard-empty">No active campaign yet.</div>
+          <button class="secondary" type="button" data-dashboard-target="settings:campaign">Create Campaign</button>
+        `}
+      </article>
+      <article class="dashboard-info-card">
+        <div class="chart-header">
+          <h3>System Guardrails</h3>
+          <span>Safety and cost controls</span>
+        </div>
+        <dl class="guardrail-list">
+          ${guardrails.map(([label, value]) => `
+            <div>
+              <dt>${escapeHtml(label)}</dt>
+              <dd>${escapeHtml(value)}</dd>
+            </div>
+          `).join("")}
+        </dl>
+      </article>
+    </section>
+    <section class="audit-preview-section">
+      <div class="next-action-header">
+        <div>
+          <h3>Recent Activity</h3>
+          <p class="muted compact-copy">Audit trail preview for imports, analysis, drafts, approvals, sends, and replies.</p>
+        </div>
+        <button class="secondary" type="button" data-dashboard-target="audit">Open Audit Logs</button>
+      </div>
+      <div class="audit-preview-list">
+        ${recentEvents.length ? recentEvents.map((event) => `
+          <div class="audit-preview-item">
+            <strong>${escapeHtml(humanizeAction(event.action || event.entity_type))}</strong>
+            <span>
+              ${escapeHtml(event.summary || "No summary saved")}
+              ${relatedAuditLabel(event) ? `<small>${escapeHtml(relatedAuditLabel(event))}</small>` : ""}
+            </span>
+            <small>${escapeHtml(formatDate(event.created_at))}</small>
+          </div>
+        `).join("") : `<div class="empty dashboard-empty">No audit events yet. Import or analyze an opportunity to start the trail.</div>`}
+      </div>
+    </section>
   `;
 }
 
@@ -1312,6 +1851,45 @@ function openOpportunityFromLeadId(leadId) {
   elements.opportunityDetail.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function openDashboardTarget(target) {
+  if (!target) return;
+  if (target === "audit") {
+    switchView("audit-view");
+    return;
+  }
+  const [section, filter] = target.split(":");
+  if (section === "settings" && filter === "campaign") {
+    showWorkspaceSection("settings");
+    window.setTimeout(() => {
+      document.querySelector("#campaign-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 60);
+    return;
+  }
+  if (section === "opportunities") {
+    state.leadFilters.outreach = filter || "";
+    state.leadFilters.grade = "";
+    state.leadFilters.search = "";
+    if (elements.leadOutreachFilter) elements.leadOutreachFilter.value = state.leadFilters.outreach;
+    if (elements.leadGradeFilter) elements.leadGradeFilter.value = "";
+    if (elements.leadSearch) elements.leadSearch.value = "";
+    showWorkspaceSection("opportunities");
+    renderLeads();
+    return;
+  }
+  if (section === "applications") {
+    state.applicationFilters.status = filter || "";
+    state.applicationFilters.source = "";
+    state.applicationFilters.search = "";
+    if (elements.applicationStatusFilter) elements.applicationStatusFilter.value = state.applicationFilters.status;
+    if (elements.applicationSourceFilter) elements.applicationSourceFilter.value = "";
+    if (elements.applicationSearch) elements.applicationSearch.value = "";
+    showWorkspaceSection("applications");
+    renderApplications();
+    return;
+  }
+  showWorkspaceSection(section);
+}
+
 function renderLeads() {
   renderQueueSummary();
   const leads = filteredLeads();
@@ -1473,7 +2051,7 @@ function renderOpportunityDetail() {
           ${drafts.length ? drafts.slice(0, 4).map((draft) => `
             <div class="detail-list-item">
               <strong>${escapeHtml(draft.subject)}</strong>
-              <span>${badge(draft.status)} ${escapeHtml(draft.generated_by)} - ${formatDate(draft.created_at)}</span>
+              <span>${badge(draft.status)} ${escapeHtml(draftGeneratorLabel(draft))} - ${formatDate(draft.created_at)}</span>
             </div>
           `).join("") : `<div class="empty">No drafts yet.</div>`}
         </section>
@@ -1667,15 +2245,14 @@ function renderCareerSources() {
 
 function renderContacts() {
   const contacts = state.leads.filter(hasUsableContact);
-  elements.contactCount.textContent = contacts.length;
-  if (!contacts.length) {
-    elements.contactsList.innerHTML = `
-      <div class="empty">No verified public contacts yet. Run Find Contact on discovered opportunities.</div>
-    `;
-    return;
-  }
+  const needsContact = state.leads.filter((lead) => (
+    isOpportunity(lead)
+    && !hasUsableContact(lead)
+    && ["COMPANY_RESEARCHED", "CONTACT_SEARCH_NEEDED", "ANALYZED"].includes(String(lead.outreach_status || ""))
+  ));
+  elements.contactCount.textContent = `${contacts.length} / ${needsContact.length}`;
 
-  elements.contactsList.innerHTML = `
+  const foundTable = contacts.length ? `
     <table>
       <thead>
         <tr>
@@ -1707,7 +2284,56 @@ function renderContacts() {
         }).join("")}
       </tbody>
     </table>
-  `;
+  ` : `<div class="empty">No verified public contacts yet. Run Find Contact on researched opportunities.</div>`;
+
+  const neededTable = needsContact.length ? `
+    <div class="table-section">
+      <div class="table-section-header">
+        <div>
+          <h3>Needs Contact Search</h3>
+          <p class="muted compact-copy">These opportunities have no sendable email yet. The agent can look for a public careers/HR email or a contact page.</p>
+        </div>
+        <span class="count">${needsContact.length}</span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Opportunity</th>
+            <th>Stage</th>
+            <th>Best Source</th>
+            <th>Last Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${needsContact.map((lead) => {
+            const sourceUrl = normalizeUrl(lead.contact_source_url || lead.opportunity_url || lead.linkedin_url);
+            return `
+              <tr>
+                <td class="application-job-cell">
+                  <strong>${escapeHtml(lead.company || "Unknown company")}</strong>
+                  <span>${escapeHtml(lead.title || "Opportunity")}</span>
+                  <small>${escapeHtml(lead.opportunity_location || "-")}</small>
+                </td>
+                <td>${badge(displayOpportunityStage(lead))}</td>
+                <td>${sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Open source</a>` : "-"}</td>
+                <td class="application-notes-cell">
+                  <span>${escapeHtml(lead.contact_verification_status || "Not searched yet")}</span>
+                  <small>${lead.contact_confidence_score ? `${escapeHtml(lead.contact_confidence_score)}/100 confidence` : "No public email saved"}</small>
+                </td>
+                <td class="action-cell">
+                  <button class="secondary" type="button" data-action="find-contact" data-lead-id="${escapeHtml(lead.id)}">Find Contact</button>
+                  <button class="secondary" type="button" data-action="open-contact-opportunity" data-lead-id="${escapeHtml(lead.id)}">Open Opportunity</button>
+                </td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  ` : "";
+
+  elements.contactsList.innerHTML = `${foundTable}${neededTable}`;
 }
 
 function renderCompanyResearch() {
@@ -1755,14 +2381,14 @@ function renderCompanyResearch() {
 
 function renderDrafts() {
   const activeDrafts = state.drafts.filter((draft) => (
-    draft.status === "pending_approval" || draft.status === "approved"
+    draft.status === "pending_approval"
   ));
 
   elements.draftCount.textContent = activeDrafts.length;
   if (!activeDrafts.length) {
     elements.draftsList.innerHTML = `
       <div class="empty">
-        No drafts need review right now. Rejected and sent drafts stay in Audit Events.
+        No drafts need approval right now. Approved drafts move to Gmail Outreach for recipient email and send/dry-run.
       </div>
     `;
     return;
@@ -1809,6 +2435,17 @@ function renderDrafts() {
     const qaNotes = draft.qa_notes
       ? `<details class="qa-notes"><summary>QA notes${draft.qa_status ? ` (${escapeHtml(draft.qa_status)})` : ""}</summary><pre>${escapeHtml(draft.qa_notes)}</pre></details>`
       : "";
+    const generationDetails = `
+      <div class="generation-summary">
+        <strong>${escapeHtml(draftGeneratorLabel(draft))}</strong>
+        <span>${escapeHtml(draftGenerationStatus(draft))}</span>
+      </div>
+      <p class="muted compact-copy">${escapeHtml(compactDraftContext(draft.context_summary))}</p>
+      <details class="source-message generation-details">
+        <summary>Generation details</summary>
+        <pre>${escapeHtml(draft.context_summary || "No generation context saved.")}</pre>
+      </details>
+    `;
     let actions = `<p class="muted">No actions available for this status.</p>`;
     if (draft.status === "pending_approval") {
       actions = `
@@ -1840,13 +2477,13 @@ function renderDrafts() {
         ${sourceLinks}
         <p>
           ${badge(draft.status)}
-          <span class="badge">${escapeHtml(draft.generated_by)}</span>
+          <span class="badge">${escapeHtml(draftGeneratorLabel(draft))}</span>
           ${draft.qa_status ? badge(`QA: ${draft.qa_status}`) : ""}
         </p>
         ${leadSuggestedMessage}
         ${bodyContent}
         ${qaNotes}
-        <p class="muted">${escapeHtml(draft.context_summary || "No context summary")}</p>
+        ${generationDetails}
         <div class="card-actions">
           ${actions}
         </div>
@@ -1857,25 +2494,33 @@ function renderDrafts() {
 
 function renderSentSummary() {
   if (!elements.sentSummary) return;
+  const gmail = gmailState();
   const sent = sentDrafts();
-  const dryRun = sent.filter((draft) => /dry/i.test(draft.sent_provider || "")).length;
-  const liveSent = sent.length - dryRun;
+  const approvedDrafts = state.drafts.filter((draft) => draft.status === "approved");
+  const recipientReady = approvedDrafts.filter((draft) => {
+    const lead = state.leads.find((item) => item.id === draft.lead_id);
+    return hasEmailContact(lead);
+  }).length;
+  const sendReady = gmail.operational ? recipientReady : 0;
+  const missingRecipient = approvedDrafts.length - recipientReady;
   const withReplies = new Set(state.replies.map((reply) => reply.lead_id)).size;
   const waiting = sent.filter((draft) => !state.replies.some((reply) => reply.lead_id === draft.lead_id)).length;
+  const followups = followupLeads().length;
   const cards = [
-    ["Sent", sent.length, "Approved messages completed", "muted-card"],
-    ["Dry Run", dryRun, "Local completion only", "warning"],
-    ["Live Sent", liveSent, "Through Gmail when enabled", "success"],
-    ["Replied", withReplies, "Opportunities with replies", "success"],
-    ["Waiting", waiting, "No reply tracked yet", "warning"],
+    ["Needs recipient", missingRecipient, "Approved drafts blocked until a public recipient is saved.", "warning", "gmail-missing-panel"],
+    ["Ready to send", sendReady, gmail.operational ? "Approved with Gmail and recipient." : "Connect real Gmail first.", gmail.operational ? "success" : "warning", "gmail-ready-panel"],
+    ["Sent", sent.length, "Completed live or dry-run messages.", "muted-card", "gmail-history-panel"],
+    ["Reply waiting", waiting, "Sent messages with no tracked reply yet.", "warning", "gmail-history-panel"],
+    ["Follow-up due", followups, "No reply after the selected waiting window.", "warning", "followups"],
+    ["Replied", withReplies, "Opportunities with synced or classified replies.", "success", "replies"],
   ];
 
-  elements.sentSummary.innerHTML = cards.map(([label, value, detail, className]) => `
-    <div class="summary-card ${className}">
+  elements.sentSummary.innerHTML = cards.map(([label, value, detail, className, target]) => `
+    <button class="summary-card ${className} clickable-card" type="button" data-gmail-scroll="${escapeHtml(target)}">
       <strong>${value}</strong>
       <span>${escapeHtml(label)}</span>
       <small>${escapeHtml(detail)}</small>
-    </div>
+    </button>
   `).join("");
 }
 
@@ -1900,19 +2545,79 @@ function renderReplySummary() {
   `).join("");
 }
 
+function renderReplySyncDetails() {
+  if (!elements.replySyncDetails) return;
+  const sync = state.lastReplySync;
+  if (!sync) {
+    elements.replySyncDetails.innerHTML = "";
+    return;
+  }
+  const details = Array.isArray(sync.details) ? sync.details : [];
+  const summary = `Fetched ${sync.fetched || 0}, matched ${sync.matched || 0}, imported ${sync.imported || 0}, skipped ${sync.skipped || 0}`;
+  elements.replySyncDetails.innerHTML = `
+    <div class="sync-details-panel">
+      <div class="table-section-header">
+        <div>
+          <h3>Last Gmail Sync</h3>
+          <p class="muted compact-copy">${escapeHtml(summary)}</p>
+        </div>
+        <span class="count">${details.length}</span>
+      </div>
+      ${details.length ? `
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Message</th>
+              <th>Match</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${details.map((detail) => {
+              const opportunity = detail.company || detail.job_title
+                ? `${detail.company || "Opportunity"}${detail.job_title ? ` - ${detail.job_title}` : ""}`
+                : "-";
+              return `
+                <tr>
+                  <td>${badge(detail.status || "checked")}</td>
+                  <td class="application-notes-cell">
+                    <span>${escapeHtml(detail.from_email || "-")}</span>
+                    <small>${escapeHtml(detail.subject || "-")}</small>
+                    <small>${escapeHtml(detail.provider_thread_id || detail.provider_message_id || "-")}</small>
+                  </td>
+                  <td class="application-notes-cell">
+                    <span>${escapeHtml(opportunity)}</span>
+                    <small>${escapeHtml(detail.draft_subject || "-")}</small>
+                    ${detail.intent ? `<small>${escapeHtml(detail.intent)}</small>` : ""}
+                  </td>
+                  <td class="application-notes-cell">
+                    <span>${escapeHtml(detail.reason || "-")}</span>
+                    <small>${detail.received_at ? escapeHtml(formatDate(detail.received_at)) : ""}</small>
+                  </td>
+                </tr>
+              `;
+            }).join("")}
+          </tbody>
+        </table>
+      ` : `<div class="empty">Gmail sync completed, but no messages were fetched in the current lookback window.</div>`}
+    </div>
+  `;
+}
+
 function renderFollowupSummary(followups) {
   if (!elements.followupSummary) return;
   const sent = sentDrafts();
   const repliedLeadIds = new Set(state.replies.map((reply) => reply.lead_id));
   const waiting = sent.filter((draft) => !repliedLeadIds.has(draft.lead_id)).length;
   const activeDrafts = state.drafts.filter((draft) => (
-    draft.status === "pending_approval" || draft.status === "approved"
+    draft.status === "pending_approval"
   )).length;
   const cards = [
-    ["Needs Follow-up", followups.length, "Sent with no reply or marked due", "warning"],
-    ["Waiting", waiting, "Sent outreach without reply", "muted-card"],
-    ["Drafts Open", activeDrafts, "Review before sending", "success"],
-    ["Replies", state.replies.length, "Already responded", "success"],
+    ["Sync replies first", state.replies.length, "Gmail replies already matched", "success"],
+    ["Reply waiting", waiting, "Sent messages without a tracked reply", "muted-card"],
+    ["Follow-up due", followups.length, "No reply after the waiting window", "warning"],
+    ["Approval needed", activeDrafts, "Follow-up drafts require review", "success"],
   ];
 
   elements.followupSummary.innerHTML = cards.map(([label, value, detail, className]) => `
@@ -1924,8 +2629,74 @@ function renderFollowupSummary(followups) {
   `).join("");
 }
 
+function followupCtaValue() {
+  const value = elements.followupCta?.value?.trim();
+  if (!value || value.includes("\u00e2")) {
+    return "I'd be grateful for any guidance on whether this type of role could be a good fit for someone with my background.";
+  }
+  return value;
+}
+
+function renderFollowupRunDetails() {
+  if (!elements.followupRunSummary) return;
+  const result = state.lastFollowupRun;
+  if (!result) {
+    elements.followupRunSummary.innerHTML = "";
+    return;
+  }
+  const sync = result.replySync;
+  const details = Array.isArray(result.details) ? result.details : [];
+  elements.followupRunSummary.innerHTML = `
+    <div class="sync-details-panel">
+      <div class="table-section-header">
+        <div>
+          <h3>Last Follow-up Run</h3>
+          <p class="muted compact-copy">
+            ${escapeHtml(result.created || 0)} created, ${escapeHtml(result.skipped || 0)} skipped, ${escapeHtml(result.scanned || 0)} eligible sent messages checked.
+            ${sync ? ` Gmail sync first: ${escapeHtml(sync.imported || 0)} imported, ${escapeHtml(sync.matched || 0)} matched, ${escapeHtml(sync.skipped || 0)} skipped.` : ""}
+          </p>
+        </div>
+        <span class="count">${escapeHtml(details.length)}</span>
+      </div>
+      ${details.length ? `
+        <table>
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Opportunity</th>
+              <th>Prior Send</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${details.map((detail) => `
+              <tr>
+                <td>${badge(detail.status || "checked")}</td>
+                <td class="application-job-cell">
+                  <strong>${escapeHtml(detail.company || "Opportunity")}</strong>
+                  <span>${escapeHtml(detail.job_title || "-")}</span>
+                  <small>${escapeHtml(detail.contact_email || "No recipient email")}</small>
+                </td>
+                <td class="application-notes-cell">
+                  <span>${escapeHtml(detail.sent_subject || "-")}</span>
+                  <small>${detail.sent_at ? escapeHtml(formatDate(detail.sent_at)) : ""}</small>
+                </td>
+                <td class="application-notes-cell">
+                  <span>${escapeHtml(detail.reason || "-")}</span>
+                  ${detail.followup_subject ? `<small>New draft: ${escapeHtml(detail.followup_subject)}</small>` : ""}
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      ` : `<div class="empty">No sent messages matched the follow-up window for this run.</div>`}
+    </div>
+  `;
+}
+
 function renderReplies() {
   renderReplySummary();
+  renderReplySyncDetails();
   const replies = state.replies.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   elements.replyCount.textContent = replies.length;
   if (!replies.length) {
@@ -1982,24 +2753,47 @@ function renderReplies() {
 }
 
 function renderSentEmails() {
+  const gmail = gmailState();
   const sent = sentDrafts();
   const approvedDrafts = state.drafts.filter((draft) => draft.status === "approved");
   const sendReadyDrafts = approvedDrafts.filter((draft) => {
     const lead = state.leads.find((item) => item.id === draft.lead_id);
-    return Boolean(lead?.email);
+    return hasEmailContact(lead);
   });
   const blockedDrafts = approvedDrafts.filter((draft) => {
     const lead = state.leads.find((item) => item.id === draft.lead_id);
-    return !lead?.email;
+    return !hasEmailContact(lead);
   });
   renderSentSummary();
   elements.sentCount.textContent = sent.length;
+  const liveSend = Boolean(state.readiness?.email?.sending_enabled);
+  const gmailIdentity = gmail.active || "No real Gmail connected";
+  const gmailWarning = gmail.operational ? "" : `
+    <div class="outreach-mode-banner blocked">
+      <div>
+        <strong>Real Gmail is not active yet</strong>
+        <span>Expected ${escapeHtml(gmail.expected || "your real job-search Gmail")}. Connect that mailbox before live sending or reply sync.</span>
+      </div>
+      <small>Current database default: ${escapeHtml(gmail.dbDefault || "none")}</small>
+    </div>
+  `;
+  const modeBanner = `
+    <div class="outreach-mode-banner ${liveSend ? "live" : "dry"}">
+      <div>
+        <strong>${liveSend ? "Live Gmail sending is enabled" : "Dry-run mode is active"}</strong>
+        <span>${liveSend ? "Approved emails are sent only after you click Send Email." : "Send actions record the workflow without sending a real email."}</span>
+      </div>
+      <small>Default sender: ${escapeHtml(gmailIdentity)}</small>
+    </div>
+  `;
   const sendReadyPanel = `
-    <div class="table-section">
+    <div class="table-section" id="gmail-ready-panel">
       <div class="table-section-header">
         <div>
-          <h3>Approved Drafts Ready For Gmail</h3>
-          <p class="muted compact-copy">Run dry-run sending here. Live Gmail send only happens when LIVE_SEND is enabled.</p>
+          <h3>Ready to send</h3>
+          <p class="muted compact-copy">
+            These drafts are approved and have real recipient emails. ${liveSend ? "Click Send Email to send through Gmail." : "Live sending is off, so the button records a dry-run instead."}
+          </p>
         </div>
         <span class="count">${sendReadyDrafts.length}</span>
       </div>
@@ -2024,9 +2818,13 @@ function renderSentEmails() {
                     <small>${escapeHtml(lead?.opportunity_location || "-")}</small>
                   </td>
                   <td>${lead ? contactCell(lead) : escapeHtml(draft.lead_id)}</td>
-                  <td>${escapeHtml(draft.subject)}</td>
+                  <td class="application-notes-cell">
+                    <span>${escapeHtml(draft.subject)}</span>
+                    <small>${escapeHtml(truncate(draft.body, 120))}</small>
+                  </td>
                   <td class="action-cell">
-                    <button class="warning" type="button" data-action="send-approved-draft" data-id="${escapeHtml(draft.id)}">Send / Dry Run</button>
+                    <button class="${liveSend ? "danger" : "warning"}" type="button" data-action="send-approved-draft" data-id="${escapeHtml(draft.id)}" ${gmail.operational ? "" : "disabled"}>${gmail.operational ? liveSend ? "Send Email" : "Run Dry Run" : "Connect Gmail"}</button>
+                    ${lead ? `<button class="secondary" type="button" data-action="mark-applied-no-email" data-lead-id="${escapeHtml(lead.id)}">Application Only</button>` : ""}
                     ${lead ? `<button class="secondary" type="button" data-action="open-sent-opportunity" data-lead-id="${escapeHtml(lead.id)}">Open Opportunity</button>` : ""}
                   </td>
                 </tr>
@@ -2034,15 +2832,15 @@ function renderSentEmails() {
             }).join("")}
           </tbody>
         </table>
-      ` : `<div class="empty">No approved drafts have recipient emails yet.</div>`}
+      ` : `<div class="empty">No send-ready drafts yet. Add a real recipient email in the section below, or mark the role as application-only if no public email exists.</div>`}
     </div>
   `;
   const blockedPanel = blockedDrafts.length ? `
-    <div class="table-section">
+    <div class="table-section" id="gmail-missing-panel">
       <div class="table-section-header">
         <div>
-          <h3>Approved But Missing Recipient</h3>
-          <p class="muted compact-copy">Run email discovery or track these as application-only if no public email exists.</p>
+          <h3>Needs recipient</h3>
+          <p class="muted compact-copy">A real public recipient is required before Gmail can send. Save an email here and the draft moves to Ready to send.</p>
         </div>
         <span class="count">${blockedDrafts.length}</span>
       </div>
@@ -2051,6 +2849,7 @@ function renderSentEmails() {
           <tr>
             <th>Opportunity</th>
             <th>Best Source</th>
+            <th>Add Recipient</th>
             <th>Action</th>
           </tr>
         </thead>
@@ -2066,8 +2865,16 @@ function renderSentEmails() {
                   <small>${escapeHtml(lead?.contact_verification_status || "email needed")}</small>
                 </td>
                 <td>${sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Open source</a>` : "-"}</td>
+                <td>
+                  <div class="inline-email-editor">
+                    <input data-gmail-contact-email-for="${escapeHtml(draft.id)}" type="email" placeholder="careers@company.com">
+                    ${lead ? `<button class="secondary" type="button" data-action="save-gmail-contact-email" data-id="${escapeHtml(draft.id)}" data-lead-id="${escapeHtml(lead.id)}">Save Email</button>` : ""}
+                  </div>
+                  <small class="muted">After saving, use the send button in Ready to send.</small>
+                </td>
                 <td class="action-cell">
                   ${lead ? `<button class="secondary" type="button" data-action="find-contact-from-gmail" data-lead-id="${escapeHtml(lead.id)}">Auto Find Email</button>` : ""}
+                  ${lead ? `<button class="secondary" type="button" data-action="mark-applied-no-email" data-lead-id="${escapeHtml(lead.id)}">Application Only</button>` : ""}
                   ${lead ? `<button class="secondary" type="button" data-action="open-sent-opportunity" data-lead-id="${escapeHtml(lead.id)}">Open Opportunity</button>` : ""}
                 </td>
               </tr>
@@ -2079,13 +2886,16 @@ function renderSentEmails() {
   ` : "";
 
   const sentHistory = sent.length ? `
-    <div class="table-section">
+    <div class="table-section" id="gmail-history-panel">
       <div class="table-section-header">
         <div>
           <h3>Sent / Dry-Run History</h3>
-          <p class="muted compact-copy">Messages here can be matched with synced or pasted replies.</p>
+          <p class="muted compact-copy">Use Gmail sync for real replies. Manual paste is only a QA fallback.</p>
         </div>
-        <span class="count">${sent.length}</span>
+        <div class="header-actions">
+          <button class="secondary" type="button" data-action="sync-gmail-from-outreach">Sync Gmail Replies</button>
+          <span class="count">${sent.length}</span>
+        </div>
       </div>
     <table>
       <thead>
@@ -2120,7 +2930,7 @@ function renderSentEmails() {
               <td>${draft.sent_at ? formatDate(draft.sent_at) : "-"}</td>
               <td>${replies.length ? badge(replies[0].intent) : badge("waiting")}</td>
               <td class="action-cell">
-                <button class="secondary" type="button" data-action="classify-sent-reply" data-id="${escapeHtml(draft.id)}" data-email="${escapeHtml(lead?.email || "")}">Classify Reply</button>
+                <button class="secondary" type="button" data-action="classify-sent-reply" data-id="${escapeHtml(draft.id)}" data-email="${escapeHtml(lead?.email || "")}">Manual QA Reply</button>
                 ${lead ? `<button class="secondary" type="button" data-action="open-sent-opportunity" data-lead-id="${escapeHtml(lead.id)}">Open Opportunity</button>` : ""}
               </td>
             </tr>
@@ -2131,21 +2941,25 @@ function renderSentEmails() {
     </div>
   ` : `<div class="empty">No sent or dry-run completed emails yet.</div>`;
 
-  elements.sentList.innerHTML = `${sendReadyPanel}${blockedPanel}${sentHistory}`;
+  elements.sentList.innerHTML = `${gmailWarning}${modeBanner}${sendReadyPanel}${blockedPanel}${sentHistory}`;
 }
 
 function renderFollowups() {
   const followups = followupLeads();
   renderFollowupSummary(followups);
+  renderFollowupRunDetails();
   elements.followupCount.textContent = followups.length;
   if (!followups.length) {
     const sent = sentDrafts();
     const repliedLeadIds = new Set(state.replies.map((reply) => reply.lead_id));
     let message = "No follow-ups due yet. Once a sent message has no tracked reply, it will appear here.";
     if (!sent.length) {
-      message = "No sent or dry-run messages yet. Approve a draft, add a real recipient email, then run Send / Dry Run before generating follow-ups.";
+      message = "No sent messages yet. Approve a draft, add a real recipient email, then send before generating follow-ups.";
     } else if (sent.every((draft) => repliedLeadIds.has(draft.lead_id))) {
       message = "All sent messages already have tracked replies, so no follow-up is needed.";
+    } else {
+      const waitDays = Math.max(0, Number(elements.followupDays?.value || 3));
+      message = `No follow-ups due yet. Sync Gmail replies first; unreplied sent messages appear here after ${waitDays} day${waitDays === 1 ? "" : "s"}.`;
     }
     elements.followupList.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
     return;
@@ -2235,6 +3049,7 @@ function renderAll() {
   renderDryRunQa();
   renderProfileSettings();
   renderSettingsOverview();
+  renderGmailAccounts();
   syncJobSourceToggles();
   renderLeads();
   renderOpportunityDetail();
@@ -2255,7 +3070,7 @@ async function loadAll() {
     await api("/api/v1/system/database");
     setApiStatus(true, "API connected");
 
-    const [readiness, profile, leads, applications, careerSources, campaigns, drafts, replies, auditEvents] = await Promise.all([
+    const [readiness, profile, leads, applications, careerSources, campaigns, drafts, replies, auditEvents, gmailAccounts] = await Promise.all([
       api("/api/v1/system/readiness"),
       api("/api/v1/profile"),
       api("/api/v1/leads"),
@@ -2265,6 +3080,7 @@ async function loadAll() {
       api("/api/v1/drafts"),
       api("/api/v1/replies"),
       api("/api/v1/audit-events"),
+      api("/api/v1/gmail/accounts"),
     ]);
 
     state.readiness = readiness;
@@ -2276,6 +3092,7 @@ async function loadAll() {
     state.drafts = drafts;
     state.replies = replies;
     state.auditEvents = auditEvents;
+    state.gmailAccounts = gmailAccounts;
     if (state.selectedLeadId && !state.leads.some((lead) => lead.id === state.selectedLeadId)) {
       state.selectedLeadId = "";
     }
@@ -2307,8 +3124,96 @@ elements.settingsRefresh.addEventListener("click", async (event) => {
 });
 
 elements.connectGmail.addEventListener("click", () => {
-  window.open(`${API_BASE_URL}/auth/google/start`, "_blank", "noopener,noreferrer");
+  window.open(gmailConnectUrl(), "_blank", "noopener,noreferrer");
 });
+
+if (elements.gmailAccountsList) {
+  elements.gmailAccountsList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-gmail-default], [data-gmail-delete]");
+    if (!button) return;
+    try {
+      if (button.dataset.gmailDelete) {
+        const email = button.dataset.gmailEmail || "this Gmail account";
+        const confirmed = await confirmAction(
+          `Disconnect ${email} from this local app? This removes only the local OAuth record and does not delete Gmail data.`,
+          {
+            title: "Disconnect Gmail Account",
+            confirmLabel: "Disconnect",
+            tone: "danger",
+          },
+        );
+        if (!confirmed) return;
+        await withButtonState(button, "Disconnecting...", "Disconnected", async () => {
+          await api(`/api/v1/gmail/accounts/${button.dataset.gmailDelete}`, { method: "DELETE" });
+          await loadAll();
+        });
+        showToast("Gmail account disconnected", "success");
+        return;
+      }
+      await withButtonState(button, "Saving...", "Default", async () => {
+        await api(`/api/v1/gmail/accounts/${button.dataset.gmailDefault}/default`, { method: "POST" });
+        await loadAll();
+      });
+      showToast("Default Gmail account updated", "success");
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+}
+
+if (elements.confirmModal) {
+  elements.confirmModal.addEventListener("click", (event) => {
+    if (event.target === elements.confirmModal || event.target === elements.confirmCancel) {
+      closeConfirmModal(false);
+      return;
+    }
+    if (event.target === elements.confirmOk) {
+      closeConfirmModal(true);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !elements.confirmModal.hidden) {
+      closeConfirmModal(false);
+    }
+  });
+}
+
+[elements.dashboardKpis, elements.dashboardNextActions].forEach((container) => {
+  if (!container) return;
+  container.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-dashboard-target]");
+    if (!button) return;
+    openDashboardTarget(button.dataset.dashboardTarget);
+  });
+});
+
+if (elements.sentSummary) {
+  elements.sentSummary.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-gmail-scroll]");
+    if (!button) return;
+    if (button.dataset.gmailScroll === "replies") {
+      showWorkspaceSection("replies");
+      return;
+    }
+    if (button.dataset.gmailScroll === "followups") {
+      showWorkspaceSection("followups");
+      return;
+    }
+    document.getElementById(button.dataset.gmailScroll)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  });
+}
+
+if (elements.followupDays) {
+  elements.followupDays.addEventListener("input", () => {
+    renderFollowups();
+    renderDashboardOverview();
+    renderSentEmails();
+  });
+}
 
 elements.viewTabs.forEach((tab) => {
   tab.addEventListener("click", () => {
@@ -2407,7 +3312,7 @@ elements.runPipelineBatch.addEventListener("click", async (event) => {
       return api("/api/v1/pipeline/run-batch", {
         method: "POST",
         body: JSON.stringify({
-          stages: ["DISCOVERED", "ANALYZED", "COMPANY_RESEARCHED"],
+          stages: ["DISCOVERED", "ANALYZED", "COMPANY_RESEARCHED", "CONTACT_SEARCH_NEEDED"],
           limit,
           allow_draft_generation: false,
         }),
@@ -2458,7 +3363,12 @@ elements.leadsList.addEventListener("click", async (event) => {
   if (button.dataset.action === "delete-lead") {
     const row = button.closest("tr");
     const label = row?.querySelector("td")?.textContent?.trim() || "this contact";
-    if (!window.confirm(`Delete ${label} and any related drafts/replies?`)) return;
+    const confirmed = await confirmAction(`Delete ${label} and any related drafts/replies?`, {
+      title: "Delete Opportunity",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       await withButtonState(button, "Deleting...", "Deleted", async () => {
         await api(`/api/v1/leads/${button.dataset.leadId}`, {
@@ -2561,8 +3471,8 @@ elements.leadsList.addEventListener("click", async (event) => {
         method: "POST",
         body: JSON.stringify({
           lead_id: button.dataset.leadId,
-          call_to_action: "Open to a 15-minute conversation?",
-          extra_context: "Use the opportunity research, contact finder result, and source URL. Keep the tone warm, concise, career-focused, and human-approved.",
+          call_to_action: DEFAULT_DRAFT_CTA,
+          extra_context: "Use the opportunity research, contact finder result, and source URL. Keep the tone warm, concise, early-career focused, and human-approved.",
         }),
       });
     });
@@ -2578,6 +3488,31 @@ elements.opportunityDetail.addEventListener("click", (event) => {
   if (!button || button.dataset.action !== "close-detail") return;
   state.selectedLeadId = "";
   renderOpportunityDetail();
+});
+
+elements.contactsList.addEventListener("click", async (event) => {
+  const button = event.target.closest("button");
+  if (!button) return;
+
+  if (button.dataset.action === "find-contact") {
+    try {
+      const result = await withButtonState(button, "Searching...", "Checked", async () => (
+        api(`/api/v1/leads/${button.dataset.leadId}/find-contact`, { method: "POST" })
+      ));
+      const contactText = result.contact_found
+        ? `Contact source found: ${result.contact_email || result.source_url || result.verification_status}`
+        : "No public email/contact page found yet";
+      showToast(`${contactText} (${result.confidence_score}/100)`);
+      await loadAll();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+    return;
+  }
+
+  if (button.dataset.action === "open-contact-opportunity") {
+    openOpportunityFromLeadId(button.dataset.leadId);
+  }
 });
 
 elements.applicationForm.addEventListener("submit", async (event) => {
@@ -2692,7 +3627,12 @@ elements.careerSourcesList.addEventListener("click", async (event) => {
   }
 
   if (button.dataset.action !== "delete-career-source") return;
-  if (!window.confirm("Delete this saved career source?")) return;
+  const confirmed = await confirmAction("Delete this saved career source?", {
+    title: "Delete Career Source",
+    confirmLabel: "Delete",
+    tone: "danger",
+  });
+  if (!confirmed) return;
   try {
     await withButtonState(button, "Deleting...", "Deleted", async () => {
       await api(`/api/v1/career-sources/${button.dataset.id}`, {
@@ -2740,7 +3680,12 @@ elements.applicationsList.addEventListener("click", async (event) => {
   }
 
   if (button.dataset.action === "delete-application") {
-    if (!window.confirm("Delete this tracked application?")) return;
+    const confirmed = await confirmAction("Delete this tracked application?", {
+      title: "Delete Application",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       await withButtonState(button, "Deleting...", "Deleted", async () => {
         await api(`/api/v1/applications/${button.dataset.id}`, {
@@ -2829,8 +3774,8 @@ elements.companyResearchList.addEventListener("click", async (event) => {
         method: "POST",
         body: JSON.stringify({
           lead_id: button.dataset.leadId,
-          call_to_action: "Open to a 15-minute conversation?",
-          extra_context: "Use the analyzed opportunity, company research, and tracked source URL. Keep it concise and human-approved.",
+          call_to_action: DEFAULT_DRAFT_CTA,
+          extra_context: "Use the analyzed opportunity, company research, and tracked source URL. Keep it concise, early-career friendly, and human-approved.",
         }),
       });
     });
@@ -2962,7 +3907,7 @@ elements.jobSearchForm.addEventListener("submit", async (event) => {
       target_locations: parseList(form.elements.target_locations.value),
       target_skills: parseList(form.elements.target_skills.value),
       sources: parseList(form.elements.sources.value),
-      max_jobs_per_source: Number(form.elements.max_jobs_per_source.value || 20),
+      max_jobs_per_source: Number(form.elements.max_jobs_per_source.value || 10),
       posted_within_days: Number(form.elements.posted_within_days.value || 14),
       import_results: form.elements.import_results.checked,
     };
@@ -3140,23 +4085,46 @@ elements.replyForm.addEventListener("submit", async (event) => {
   }
 });
 
-elements.syncEmailReplies.addEventListener("click", async (event) => {
+async function syncGmailRepliesFromButton(button) {
   try {
-    const result = await withButtonState(event.currentTarget, "Syncing...", "Synced", async () => (
+    const result = await withButtonState(button, "Syncing...", "Synced", async () => (
       api("/api/v1/replies/sync", { method: "POST" })
     ));
+    state.lastReplySync = result;
     showToast(`Gmail sync: ${result.imported} imported, ${result.matched} matched, ${result.skipped} skipped`);
     await loadAll();
+    renderReplySyncDetails();
   } catch (error) {
     showToast(error.message, "error");
   }
+}
+
+elements.syncEmailReplies.addEventListener("click", async (event) => {
+  await syncGmailRepliesFromButton(event.currentTarget);
 });
 
 elements.sentList.addEventListener("click", async (event) => {
   const button = event.target.closest("button");
   if (!button) return;
 
+  if (button.dataset.action === "sync-gmail-from-outreach") {
+    await syncGmailRepliesFromButton(button);
+    return;
+  }
+
   if (button.dataset.action === "send-approved-draft") {
+    const liveSend = Boolean(state.readiness?.email?.sending_enabled);
+    const confirmed = await confirmAction(
+      liveSend
+        ? "LIVE SENDING IS ENABLED. This approved draft will be sent through Gmail to the saved recipient."
+        : "Dry-run mode is active. This will not send a real email, but it will mark the approved draft as sent/dry-run complete.",
+      {
+        title: liveSend ? "Send Real Email" : "Run Dry-Run Send",
+        confirmLabel: liveSend ? "Send Email" : "Run Dry Run",
+        tone: liveSend ? "danger" : "default",
+      },
+    );
+    if (!confirmed) return;
     try {
       await withButtonState(button, "Sending...", "Send Complete", async () => {
         await api(`/api/v1/drafts/${button.dataset.id}/send`, {
@@ -3175,6 +4143,38 @@ elements.sentList.addEventListener("click", async (event) => {
     return;
   }
 
+  if (button.dataset.action === "save-gmail-contact-email") {
+    const row = button.closest("tr");
+    const email = row?.querySelector(`[data-gmail-contact-email-for="${CSS.escape(button.dataset.id)}"]`)?.value.trim();
+    if (!email) {
+      showToast("Add a recipient email first.");
+      return;
+    }
+    if (!looksLikeEmail(email)) {
+      showToast("That is not an email address. Paste a real public email like careers@company.com.");
+      return;
+    }
+    try {
+      await withButtonState(button, "Saving...", "Saved", async () => {
+        await api(`/api/v1/leads/${button.dataset.leadId}/contact`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            email,
+            contact_name: "Hiring Team",
+            contact_role: "Recruiting / Hiring",
+            contact_source_url: row?.querySelector("a[href]")?.href || null,
+            note: "Added from Gmail Outreach before send/dry-run.",
+          }),
+        });
+      });
+      showToast("Recipient email saved. Draft is now ready for Send / Dry Run.", "success");
+      await loadAll();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+    return;
+  }
+
   if (button.dataset.action === "find-contact-from-gmail") {
     try {
       const result = await withButtonState(button, "Searching...", "Search Done", async () => (
@@ -3185,6 +4185,27 @@ elements.sentList.addEventListener("click", async (event) => {
       } else {
         showToast("No public email found. Track as application-only unless a real email appears.");
       }
+      await loadAll();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+    return;
+  }
+
+  if (button.dataset.action === "mark-applied-no-email") {
+    const confirmed = await confirmAction(
+      "Mark this opportunity as application-only because no public outreach email is available?",
+      {
+        title: "Track Application Only",
+        confirmLabel: "Track Application",
+      },
+    );
+    if (!confirmed) return;
+    try {
+      await withButtonState(button, "Tracking...", "Tracked", async () => {
+        await api(`/api/v1/leads/${button.dataset.leadId}/track-application-only`, { method: "POST" });
+      });
+      showToast("Application tracked. Recipient email and Gmail send path were cleared.", "success");
       await loadAll();
     } catch (error) {
       showToast(error.message, "error");
@@ -3214,28 +4235,43 @@ elements.generateFollowups.addEventListener("click", async (event) => {
   try {
     const daysSinceSent = elements.followupDays.value === "" ? 3 : Number(elements.followupDays.value);
     const limit = elements.followupLimit.value === "" ? 10 : Number(elements.followupLimit.value);
+    let replySync = null;
+    if (elements.followupSyncFirst?.checked) {
+      replySync = await api("/api/v1/replies/sync", { method: "POST" });
+      state.lastReplySync = replySync;
+    }
     const result = await withButtonState(event.currentTarget, "Generating...", "Drafts Created", async () => (
       api("/api/v1/followups/generate", {
         method: "POST",
         body: JSON.stringify({
           days_since_sent: daysSinceSent,
           limit,
-          call_to_action: elements.followupCta.value.trim() || "Would it be worth a quick conversation this week?",
+          call_to_action: followupCtaValue(),
           extra_context: "Follow-up draft for job-search outreach. Keep it concise and human-reviewable.",
         }),
       })
     ));
+    state.lastFollowupRun = { ...result, replySync };
     const hint = result.created
       ? ""
       : ". Need a sent/dry-run draft with recipient email, no reply, and no active draft for that opportunity.";
-    showToast(`Follow-ups: ${result.created} drafts created, ${result.skipped} skipped${hint}`);
+    const syncPrefix = replySync ? `Gmail sync first: ${replySync.imported} imported. ` : "";
+    showToast(`${syncPrefix}Follow-ups: ${result.created} drafts created, ${result.skipped} skipped${hint}`);
     await loadAll();
+    renderFollowupRunDetails();
     if (result.created) {
       showWorkspaceSection("drafts");
     }
   } catch (error) {
     showToast(error.message, "error");
   }
+});
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-followup-cta]");
+  if (!button || !elements.followupCta) return;
+  elements.followupCta.value = button.dataset.followupCta;
+  elements.followupCta.focus();
 });
 
 elements.followupList.addEventListener("click", (event) => {
@@ -3349,9 +4385,9 @@ elements.draftsList.addEventListener("click", async (event) => {
   if (action === "mark-applied-no-email") {
     try {
       await withButtonState(button, "Tracking...", "Tracked", async () => {
-        await api(`/api/v1/leads/${button.dataset.leadId}/mark-applied`, { method: "POST" });
+        await api(`/api/v1/leads/${button.dataset.leadId}/track-application-only`, { method: "POST" });
       });
-      showToast("Application marked applied. Gmail outreach is skipped until a real public email is found.", "success");
+      showToast("Application marked applied. Recipient email and active Gmail draft were cleared.", "success");
       await loadAll();
       showWorkspaceSection("applications");
     } catch (error) {
@@ -3385,12 +4421,26 @@ elements.draftsList.addEventListener("click", async (event) => {
 
   const liveSend = Boolean(state.readiness?.email?.sending_enabled);
   const confirmations = {
-    reject: "Reject this draft? It moves to the audit trail and leaves the approval queue.",
-    send: liveSend
-      ? "LIVE SENDING IS ENABLED. This will send a real email through Gmail. Continue?"
-      : "Live sending is off, so this runs as a dry run (no real email is sent). Continue?",
+    reject: {
+      message: "Reject this draft? It moves to the audit trail and leaves the approval queue.",
+      title: "Reject Draft",
+      confirmLabel: "Reject Draft",
+      tone: "danger",
+    },
+    send: {
+      message: liveSend
+        ? "LIVE SENDING IS ENABLED. This will send a real email through Gmail. Continue?"
+        : "Live sending is off, so this runs as a dry run. No real email is sent.",
+      title: liveSend ? "Send Real Email" : "Run Dry Send",
+      confirmLabel: liveSend ? "Send Email" : "Run Dry Run",
+      tone: liveSend ? "danger" : "default",
+    },
   };
-  if (confirmations[action] && !confirmAction(confirmations[action])) return;
+  if (confirmations[action]) {
+    const { message, ...options } = confirmations[action];
+    const confirmed = await confirmAction(message, options);
+    if (!confirmed) return;
+  }
 
   const payloads = {
     approve: { reviewer: "Prakriti", note: "Approved from dashboard." },
