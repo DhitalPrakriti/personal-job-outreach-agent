@@ -1,209 +1,244 @@
 # Personal Job Outreach Agent
 
-A personal job search command center for opportunity discovery, application tracking, recruiter/contact research, human-approved Gmail outreach, replies, and follow-ups.
+A production-oriented job search command center for discovering opportunities, tracking applications, preparing human-approved Gmail outreach, syncing replies, and managing follow-ups.
 
-The product keeps automation useful without making it reckless: contacts are tracked in a pipeline, AI drafts are quality-checked, every message requires human approval, Gmail sending is disabled by default, replies are synced and classified, and every important action is written to an audit trail.
+This project is built as a personal automation system, not a bulk email tool. LinkedIn and Indeed are handled through manual-safe URL and description imports. Gmail sending is gated by human approval, live sending is disabled by default, LLM usage is routed through LiteLLM with budget caps, and every important workflow action is recorded in an audit trail.
 
-## Product Capabilities
+## What It Does
 
-- Contact and opportunity pipeline for recruiters, hiring managers, founders, alumni, referrals, and target companies
-- Manual contact creation, CSV import, and job discovery import
-- Career-page discovery from public company/job-board URLs, including Greenhouse, Lever, and Ashby public boards
-- Automated latest-job search from public job feeds such as Remotive and RemoteOK, plus optional Adzuna Canada search with API keys
-- Production-safe LinkedIn and Indeed tracker tabs for manual URL/description/CSV imports without scraping
-- Fit scoring from target roles, target locations, skills, contact availability, and role research notes
-- Company research and contact finder agents for each discovered opportunity
-- AI-assisted first-touch and follow-up drafting through LiteLLM
-- Deterministic QA checks before a draft reaches the approval queue
-- Human approval and edit workflow before any email can be sent
-- Gmail OAuth setup for live send and reply sync
-- Reply classification into interested, interview, resume requested, not interested, out of office, bounce, unclear, neutral, and unsubscribe
-- Scheduled automation (Cloud Scheduler) for pipeline advancement, draft queues, reply sync, and follow-up queues
-- PostgreSQL-backed state and audit history for portfolio-grade traceability
+- Discovers early-career tech opportunities from public job feeds, saved career-page sources, and manual imports.
+- Supports manual-safe LinkedIn and Indeed trackers for pasted job URLs, descriptions, recruiter links, and notes.
+- Scores opportunities against target roles, Canadian/remote locations, skills, contact availability, and role fit.
+- Researches companies and stores source links, summaries, tech stack clues, and contact-search context.
+- Finds public contact options when available, including careers inboxes, contact pages, public emails, and recruiter/profile links.
+- Generates recent-graduate-friendly outreach drafts using Gemini through LiteLLM, with deterministic fallback drafts if the LLM is unavailable.
+- Requires review, edit, and approval before any message can be sent.
+- Sends through Gmail only when a real recipient exists and live sending is explicitly enabled.
+- Syncs Gmail replies, matches them to sent outreach, classifies intent, and prepares follow-up work.
+- Tracks applications separately from outreach so job applications without public emails still stay visible.
 
-## Target Workflow
+## Pipeline
 
-1. Enter target roles and locations, such as junior AI engineer, backend developer, software developer, Vancouver, Alberta, Saskatchewan, or remote Canada.
-2. Discover opportunities from job boards, company career pages, URLs, or CSV imports.
-3. Research each company and role with summaries, tech stack clues, role fit, and source links.
-4. Find public contacts such as recruiter emails, HR inboxes, careers inboxes, LinkedIn profile links, or contact-page links.
-5. Score each opportunity based on skills, location, role level, tech stack, and outreach readiness.
-6. Generate a personalized outreach draft from the job, company, contact, and profile context.
-7. Review, edit, approve, or reject every draft in the dashboard.
-8. Send through Gmail only after approval and only when live sending is explicitly enabled.
-9. Sync Gmail replies and match them back to sent outreach.
-10. Classify replies as interested, interview, resume requested, not interested, out of office, bounce, unclear, or neutral.
-11. Generate a follow-up draft if no reply arrives after the configured waiting period.
-12. Track the pipeline from discovered to contact found, drafted, approved, sent, replied, follow-up due, or closed.
-
-## Current Working Scope
-
-- Manual company/job/contact entry
-- CSV import
-- Career-page and job-board URL discovery
-- Automated latest-job search by target roles, locations, and skills
-- LinkedIn Tracker: manual LinkedIn job URL import, recruiter profile URL tracking, pasted descriptions, fit scoring, LinkedIn connection message generation, and Gmail draft generation
-- Indeed Tracker: manual Indeed URL import, pasted job descriptions, CSV import, fit scoring, company research, and Gmail draft generation
-- Job discovery importer for job postings, company research, tech stack notes, contact links, and opportunity scoring
-- Public contact finder for careers/recruiting emails, contact pages, company profile links, and source URL fallback
-- Delete controls for local pipeline cleanup
-- Opportunity pipeline states
-- AI/fallback draft generation
-- Human approval
-- Gmail OAuth
-- Gmail dry-run/live-send switch
-- Reply classification endpoint
-- Follow-up queue generation
-
-## Next Automation Integrations
-
-- Job discovery source: Indeed, ZipRecruiter, company career pages, Greenhouse/Lever pages, or imported CSV exports.
-- Company research source: public websites, career pages, job descriptions, and company insight providers.
-- Contact discovery source: public careers inboxes, recruiter profile links, company contact pages, and manually confirmed emails.
-- Profile memory: resume, project summaries, skills, locations, and preferred roles used by the scoring and drafting agents.
-
-## Import Sources
-
-- **Automated Job Search** queries configured job feeds directly, filters for Canada/remote Canada IT roles, scores the matches, and imports them into the pipeline.
-- **Create Contact** adds one company, job, recruiter, hiring manager, or team manually.
-- **Discover From Career Pages** fetches public source URLs, uses supported public job-board APIs for Greenhouse, Lever, and Ashby, falls back to HTML extraction for ordinary career pages, detects public contact emails where available, and imports matches into the pipeline.
-- **Import CSV Contacts** imports rows from the text box in the dashboard. This is local CSV parsing only.
-- **Job Discovery Importer** imports job rows, keeps research context, scores fit, and places each opportunity in `Opportunity Discovered` or `Contact Found`.
-
-LinkedIn and Indeed are intentionally not scraped. The tracker tabs use only user-pasted URLs, descriptions, recruiter/profile URLs, CSV rows, and notes. LinkedIn messages are generated for manual use only; the app does not send or automate LinkedIn messaging.
-
-Indeed, Glassdoor, and Canada Job Bank live-source adapters should be added only through approved provider access, partner APIs, official feeds, exports, or pasted job/company URLs.
-
-## Agent Layer
-
-- `JobSearchDiscoveryService`: live job feed discovery for Remotive, RemoteOK, optional Adzuna, and explicit gated adapters for Indeed, Glassdoor, and Job Bank.
-- `SourceAdapter`: production-safe source adapter boundary for LinkedIn and Indeed manual trackers, with future official API adapters able to normalize into the same opportunity model.
-- `CompanyResearchAgent`: turns the posting, company, source URL, location, tech stack, and fit context into research notes.
-- `ContactFinderAgent`: searches public job/company/careers/contact pages for public emails, contact URLs, and profile links with confidence scoring.
-- `AIDraftService`: generates personalized first-touch and follow-up drafts through LiteLLM with fallback drafting.
-- `DraftQAAgent`: blocks risky or incomplete drafts before approval.
-- `EmailSenderAgent`: sends only approved drafts, with dry-run as the default.
-- `EmailInboxAgent`: fetches recent Gmail replies when reply sync is enabled.
-- `ReplyClassifierAgent`: classifies replies into interested, interview, resume requested, not interested, out of office, bounce, unclear, or neutral.
-
-## Cloud Run Deployment
-
-The root `Dockerfile.cloudrun` packages the FastAPI backend and static dashboard into one Cloud Run service. The service serves the dashboard at `/` and `/dashboard`, and the API under `/api/v1`.
-
-Use Cloud SQL or another managed PostgreSQL database for production `DATABASE_URL`. Keep `EMAIL_SENDING_ENABLED=false` until Gmail dry-run, approval, and reply sync are verified in production.
-
-```bash
-gcloud artifacts repositories create personal-outreach --repository-format=docker --location=us-central1
-gcloud builds submit --config cloudbuild.yaml
+```text
+DISCOVERED
+  -> ANALYZED
+  -> COMPANY_RESEARCHED
+  -> CONTACT_FOUND
+  -> DRAFTED
+  -> PENDING_APPROVAL
+  -> APPROVED
+  -> SENT
+  -> REPLIED
+  -> FOLLOW_UP_DUE
 ```
 
-The app starts with manual targets, job discovery rows, and CSV import so it stays focused on your personal outreach process.
+The dashboard is organized around this lifecycle:
 
-## Roadmap
+- Dashboard: real workflow summary, safety status, action queue, and audit preview
+- Job Discovery: public job-feed search, saved career sources, and one-off career-page scans
+- LinkedIn Tracker: manual LinkedIn URL/description tracking with no scraping or auto-messaging
+- Indeed Tracker: manual Indeed URL/description/CSV import with no scraping
+- Opportunities: pipeline table and per-opportunity actions
+- Applications: saved/applied/interview/rejected/follow-up-needed tracking
+- Company Research: company and role context
+- Contact Finder: public contact discovery and manual contact confirmation
+- Drafts / Approval Queue: human review before send
+- Gmail Outreach: needs recipient, ready to send, sent, reply waiting, follow-up due
+- Replies: Gmail reply sync and LLM classification
+- Follow-ups: follow-up draft generation after no reply
+- Settings: connected Gmail accounts, profile preferences, and readiness
+- Audit Logs: traceability for imports, analysis, drafts, approvals, sends, and reply classification
 
-- Job discovery: pull matching roles from job boards, company career pages, or saved searches.
-- Contact discovery: enrich target companies with recruiter or hiring-manager contacts.
-- Optional tracker sync: connect a spreadsheet or other personal tracker later if it becomes useful.
-- Resume/context memory: personalize outreach using selected project and resume highlights.
-- Follow-up planner: show due follow-ups and suggested next actions.
+## Source Safety
+
+The app intentionally does not scrape LinkedIn, does not automate LinkedIn messaging, and does not scrape Indeed. Those tabs are designed for user-provided job URLs, descriptions, recruiter links, and notes.
+
+Supported discovery approaches:
+
+- Remotive and RemoteOK public job feeds
+- Optional Adzuna Canada API integration
+- Public company career pages
+- Greenhouse, Lever, and Ashby public job-board URLs
+- Manual LinkedIn, Indeed, and Glassdoor URL tracking
+- CSV imports
+
+Future job sources should be added through the source adapter boundary using official APIs, partner feeds, exports, or user-pasted data.
 
 ## Architecture
 
 ```text
-Manual entry / CSV import / job discovery import
-        |
-        v
-Cloud Scheduler (cron) ---> FastAPI orchestration ---> PostgreSQL audit/state
-                                 |
-                                 +--> Draft + QA agents --> LiteLLM --> model provider
-                                 |
-                                 +--> Human approval dashboard
-                                 |
-                                 +--> Gmail send + inbox sync
+Dashboard
+  -> FastAPI API
+    -> PostgreSQL state and audit log
+    -> Source adapters and job discovery services
+    -> Company research and contact finder services
+    -> LiteLLM gateway for Gemini-backed AI tasks
+    -> Gmail OAuth send and reply sync
 ```
 
-All pipeline logic (API calls, conditions, AI drafting, data transformation,
-email) lives in the FastAPI backend. Cloud Scheduler only decides *when* each
-automation endpoint runs — there is no separate workflow engine.
+Key backend modules:
 
-Supporting services:
-
-- PostgreSQL: durable contacts, campaigns, drafts, replies, audit events
-- Redis: response cache for the LiteLLM proxy
-- LiteLLM: model aliases, routing, budgets, and provider abstraction
-- Cloud Scheduler (production): time-based triggers that POST to the automation endpoints
+- `backend/app/services/job_source_discovery.py`: public job-feed discovery and source adapter boundary
+- `backend/app/services/pipeline_service.py`: pipeline orchestration, applications, drafts, sends, replies, follow-ups, and audit events
+- `backend/app/services/contact_finder.py`: public contact-source detection and confidence scoring
+- `backend/app/services/ai_draft_service.py`: first-touch and follow-up drafting with fallback behavior
+- `backend/app/services/gmail_account_service.py`: connected Gmail account storage and token encryption
+- `backend/app/agents/email_sender.py`: Gmail send and dry-run delivery
+- `backend/app/agents/email_inbox.py`: Gmail reply fetching
+- `backend/app/agents/reply_classifier.py`: reply intent classification
 
 ## Safety Defaults
 
-- Every email requires human approval.
-- `EMAIL_SENDING_ENABLED=false` performs a dry run instead of sending.
-- `EMAIL_REPLY_SYNC_ENABLED=false` prevents mailbox polling.
-- Scheduled jobs only prepare drafts; nothing is sent without approval.
+- `APP_AUTH_ENABLED=false` locally, but should be `true` on Cloud Run.
+- `APP_SIGNUP_ENABLED=false` except during first-user setup.
+- `EMAIL_SENDING_ENABLED=false` by default.
+- Human approval is required before send.
+- Approved drafts still need a real recipient email before Gmail can send.
+- LinkedIn remains manual-only.
+- Gmail refresh tokens are encrypted when `GMAIL_TOKEN_ENCRYPTION_KEY` is configured.
+- LLM calls are limited by per-run caps and LiteLLM budget caps.
+- Secrets belong in `.env` locally and Secret Manager or Cloud Run secrets in production.
 
-## Local Windows Setup
+## Local Setup
 
 ```powershell
-cd C:\personal-outreach-agent
+cd personal-job-outreach-agent
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
 docker compose up -d postgres redis litellm
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8001
 ```
 
-In a second terminal:
+In another terminal:
 
 ```powershell
-cd C:\personal-outreach-agent
+cd personal-job-outreach-agent
 .\.venv\Scripts\python.exe -m http.server 3000 --directory dashboard --bind 127.0.0.1
 ```
 
 Open:
 
-- Dashboard: http://localhost:3000
-- API docs: http://localhost:8000/docs
-- Readiness: http://localhost:8000/api/v1/system/readiness
-- LiteLLM: http://localhost:4000
+- Dashboard: `http://localhost:3000`
+- API docs: `http://localhost:8001/docs`
+- Readiness: `http://localhost:8001/api/v1/system/readiness`
+- LiteLLM proxy: `http://localhost:4000`
 
-## Gmail Setup
+The Cloud Run build serves the dashboard and API from one service, so the separate static server is only needed for local frontend development.
 
-This project is designed around a personal outreach Gmail account.
+## Environment
+
+Copy `.env.example` to `.env` and fill only local values:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Important values:
+
+```text
+DATABASE_URL=postgresql+asyncpg://...
+AUTOMATION_API_KEY=<random-local-token>
+APP_AUTH_ENABLED=false
+APP_AUTH_SECRET_KEY=<random-session-secret>
+APP_SIGNUP_ENABLED=false
+APP_ALLOWED_EMAIL=<your-login-email>
+
+LLM_PROVIDER=gemini
+LLM_API_KEY=<your-gemini-api-key>
+PRIMARY_MODEL=gemini-flash
+FAST_MODEL=gemini-flash-lite
+AI_DRAFTING_ENABLED=true
+MONTHLY_LLM_BUDGET_CAD=20
+MONTHLY_LLM_BUDGET_USD=14
+
+GOOGLE_CLIENT_ID=<oauth-client-id>
+GOOGLE_CLIENT_SECRET=<oauth-client-secret>
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8001/auth/google/callback
+GMAIL_TOKEN_ENCRYPTION_KEY=<fernet-or-long-random-secret>
+
+EMAIL_SENDING_ENABLED=false
+EMAIL_REPLY_SYNC_ENABLED=true
+```
+
+Runtime caps:
+
+```text
+MAX_JOBS_PER_SOURCE=10
+MAX_JOBS_PER_SEARCH_RUN=30
+MAX_AI_DRAFTS_PER_RUN=5
+MAX_FOLLOWUPS_PER_RUN=5
+MAX_PIPELINE_BATCH_SIZE=10
+```
+
+## Gmail OAuth
 
 1. Create or select a Google Cloud project.
-2. Configure an OAuth consent screen for your own account.
-3. Create an OAuth client for a local web app.
-4. Add this redirect URI: `http://localhost:8000/auth/google/callback`
-5. Add `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_SENDER_EMAIL`, and `GOOGLE_INBOX_EMAIL` to `.env`.
-6. Start the backend and open `http://localhost:8000/auth/google/start`.
-7. After consent, the app saves `GOOGLE_REFRESH_TOKEN` locally in `.env`.
+2. Enable the Gmail API.
+3. Configure OAuth consent for external testing and add your Gmail as a test user.
+4. Create a web OAuth client.
+5. Add local redirect URI: `http://localhost:8001/auth/google/callback`.
+6. Add Cloud Run redirect URI after deploy: `https://YOUR-CLOUD-RUN-URL/auth/google/callback`.
+7. Start the backend and open `/auth/google/start`.
+8. Select the Gmail account you want to use for job outreach and reply sync.
 
-Live sending still requires `EMAIL_SENDING_ENABLED=true`. Keep it disabled while testing.
+The Gemini billing account and Gmail sender account do not need to be the same Google account.
 
-## Scheduled Automation
+## LLM Gateway
 
-Production automation runs on Google Cloud Scheduler — time-based cron jobs that
-POST to the FastAPI automation endpoints. The scheduled jobs are:
+AI tasks are routed through LiteLLM so the app can use one provider API key and switch model aliases without changing application code.
 
-1. Pipeline advancement (`/pipeline/run-batch`)
-2. Draft queue generation (`/automation/generate-drafts`)
-3. Email reply synchronization (`/integrations/email/sync-replies`)
-4. Follow-up queue generation (`/automation/generate-followups`)
+Default Gemini routing:
 
-See [infra/scheduler/README.md](infra/scheduler/README.md) for the setup script
-and cadences. Locally, trigger the same endpoints by hand or from the dashboard.
+- `gemini-flash-lite`: fit scoring, contact extraction, reply classification, and small structured tasks
+- `gemini-flash`: company research, outreach drafts, and follow-up drafts
 
-## External Credentials Still Required
+LiteLLM enforces the gateway budget. The app also enforces server-side per-run limits so scheduled jobs and direct API calls stay bounded.
 
-Live AI requires a valid model-provider key behind LiteLLM. Live Gmail operation requires a Google Cloud OAuth client, Gmail API access, and a refresh token for the outreach mailbox.
+## Cloud Run Deployment
 
-Do not enable live sending until Gmail OAuth, dry-run send behavior, and the human approval flow have been tested end to end.
+The project includes:
+
+- `Dockerfile.cloudrun`: one image for FastAPI plus static dashboard assets
+- `cloudbuild.yaml`: build and push to Artifact Registry
+- `.gcloudignore`: excludes local-only files from build context
+- Cloud SQL-compatible `DATABASE_URL`
+- Google OAuth callback support for deployed URLs
+
+Production checklist:
+
+- Enable `APP_AUTH_ENABLED=true`.
+- Temporarily enable `APP_SIGNUP_ENABLED=true` only for first-user setup.
+- Disable signup after the first account is created.
+- Store secrets in Secret Manager or Cloud Run secrets.
+- Use Cloud SQL PostgreSQL or another managed PostgreSQL database.
+- Add the deployed OAuth callback URL to the Google OAuth client.
+- Keep `EMAIL_SENDING_ENABLED=false` until dry-run and approval behavior is verified.
+- Keep LLM and discovery caps low.
+
+Example build:
+
+```powershell
+gcloud artifacts repositories create personal-outreach --repository-format=docker --location=us-central1
+gcloud builds submit --config cloudbuild.yaml
+```
+
+Deploy with production environment variables and secrets attached through Cloud Run.
 
 ## Validation
 
 ```powershell
 .\.venv\Scripts\python.exe -m ruff check backend\app
-.\.venv\Scripts\python.exe -m compileall -q backend\app
-docker compose config --quiet
+.\.venv\Scripts\python.exe -m pytest backend\tests -q
 node --check dashboard\app.js
+docker compose config --quiet
 ```
 
-Do not run the full database test suite against a populated local development database; the tests reset tables.
+Do not run the full database test suite against a populated personal development database unless you are comfortable with test database resets.
+
+## Roadmap
+
+- Add login/session hardening for multi-user deployment.
+- Add Cloud Scheduler jobs for safe batch discovery, reply sync, and follow-up generation.
+- Add official job-source adapters where supported.
+- Improve company/contact research with richer public-source attribution.
+- Add exportable interview demo data without mixing it with live personal data.

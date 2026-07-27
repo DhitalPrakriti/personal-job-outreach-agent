@@ -7,6 +7,7 @@ from email.message import EmailMessage
 import httpx
 
 from app.core.config import get_settings
+from app.services.gmail_account_service import GmailAccountCredentials
 
 
 class EmailSendError(RuntimeError):
@@ -25,27 +26,45 @@ class EmailSenderAgent:
     def __init__(self) -> None:
         self.settings = get_settings()
 
-    async def send(self, to_email: str, subject: str, body: str) -> EmailSendResult:
-        if not self.settings.email_sending_enabled:
+    async def send(
+        self,
+        to_email: str,
+        subject: str,
+        body: str,
+        gmail_account: GmailAccountCredentials | None = None,
+        *,
+        force_dry_run: bool = False,
+    ) -> EmailSendResult:
+        if force_dry_run or not self.settings.email_sending_enabled:
             return EmailSendResult(
-                provider=f"{self.settings.email_provider.lower()}_dry_run",
+                provider=(
+                    f"gmail_dry_run:{gmail_account.email}"
+                    if gmail_account
+                    else f"{self.settings.email_provider.lower()}_dry_run"
+                ),
                 message_id=None,
                 thread_id=None,
                 dry_run=True,
             )
         provider = self.settings.email_provider.lower()
         if provider == "gmail":
-            return await self._send_gmail(to_email, subject, body)
+            return await self._send_gmail(to_email, subject, body, gmail_account)
         if provider != "outlook":
             raise EmailSendError(f"Unsupported live email provider: {self.settings.email_provider}")
         return await self._send_outlook(to_email, subject, body)
 
-    async def _send_gmail(self, to_email: str, subject: str, body: str) -> EmailSendResult:
-        self._validate_gmail_config()
-        token = await self._gmail_access_token()
+    async def _send_gmail(
+        self,
+        to_email: str,
+        subject: str,
+        body: str,
+        gmail_account: GmailAccountCredentials | None = None,
+    ) -> EmailSendResult:
+        self._validate_gmail_config(gmail_account)
+        token = await self._gmail_access_token(gmail_account)
         message = EmailMessage()
         message["To"] = to_email
-        message["From"] = self.settings.google_sender_email
+        message["From"] = gmail_account.email if gmail_account else self.settings.google_sender_email
         message["Subject"] = subject
         message.set_content(body)
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode().rstrip("=")
@@ -94,21 +113,21 @@ class EmailSenderAgent:
         message_id = response.headers.get("request-id") or response.headers.get("client-request-id")
         return EmailSendResult(provider="outlook", message_id=message_id, thread_id=message_id, dry_run=False)
 
-    def _validate_gmail_config(self) -> None:
+    def _validate_gmail_config(self, gmail_account: GmailAccountCredentials | None = None) -> None:
         required = (
             self.settings.google_client_id,
             self.settings.google_client_secret,
-            self.settings.google_refresh_token,
-            self.settings.google_sender_email,
+            gmail_account.refresh_token if gmail_account else self.settings.google_refresh_token,
+            gmail_account.email if gmail_account else self.settings.google_sender_email,
         )
         if not all(required):
             raise EmailSendError("Gmail sending credentials are incomplete.")
 
-    async def _gmail_access_token(self) -> str:
+    async def _gmail_access_token(self, gmail_account: GmailAccountCredentials | None = None) -> str:
         data = {
             "client_id": self.settings.google_client_id,
             "client_secret": self.settings.google_client_secret,
-            "refresh_token": self.settings.google_refresh_token,
+            "refresh_token": gmail_account.refresh_token if gmail_account else self.settings.google_refresh_token,
             "grant_type": "refresh_token",
         }
         try:
@@ -116,8 +135,22 @@ class EmailSenderAgent:
                 response = await client.post(self.settings.google_token_url, data=data)
             response.raise_for_status()
             return str(response.json()["access_token"])
-        except (httpx.HTTPError, KeyError) as exc:
-            raise EmailSendError("Gmail authentication failed.") from exc
+        except httpx.HTTPStatusError as exc:
+            reason = self._google_error_reason(exc.response)
+            raise EmailSendError(f"Gmail authentication failed: {reason}") from exc
+        except (httpx.HTTPError, KeyError, ValueError) as exc:
+            raise EmailSendError("Gmail authentication failed: token refresh request failed.") from exc
+
+    def _google_error_reason(self, response: httpx.Response) -> str:
+        try:
+            payload = response.json()
+        except ValueError:
+            return f"Google token endpoint returned HTTP {response.status_code}."
+        error = str(payload.get("error") or f"HTTP {response.status_code}")
+        description = str(payload.get("error_description") or "").strip()
+        if description:
+            return f"{error} - {description}"
+        return error
 
     def _validate_graph_config(self) -> None:
         required = (

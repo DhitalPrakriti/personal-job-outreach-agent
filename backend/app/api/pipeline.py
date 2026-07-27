@@ -423,6 +423,7 @@ async def sync_email_replies(
         imported=result.imported,
         skipped=result.skipped,
         replies=result.replies,
+        details=result.details,
     )
 
 
@@ -444,6 +445,7 @@ async def sync_email_replies_from_dashboard(
         imported=result.imported,
         skipped=result.skipped,
         replies=result.replies,
+        details=result.details,
     )
 
 
@@ -474,6 +476,7 @@ async def generate_followup_queue(
         created=result.created,
         skipped=result.skipped,
         drafts=result.drafts,
+        details=result.details,
     )
 
 
@@ -489,6 +492,7 @@ async def generate_followup_queue_from_dashboard(
         created=result.created,
         skipped=result.skipped,
         drafts=result.drafts,
+        details=result.details,
     )
 
 
@@ -624,6 +628,20 @@ async def mark_application_applied_from_lead(
     application = await service.mark_application_applied_from_lead(
         lead_id,
         note="Applied through the job/source page. No public outreach email was found.",
+    )
+    if application is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
+    return application
+
+
+@router.post("/leads/{lead_id}/track-application-only", response_model=Application)
+async def track_application_only_from_lead(
+    lead_id: UUID,
+    service: PipelineService = Depends(get_pipeline_service),
+) -> Application:
+    application = await service.track_application_only_from_lead(
+        lead_id,
+        note="Applied or saved through the job/source page. No public outreach email is available.",
     )
     if application is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Opportunity not found")
@@ -769,7 +787,24 @@ async def simulate_send_draft(
     payload: SendDecision,
     service: PipelineService = Depends(get_pipeline_service),
 ) -> EmailDraft:
-    return await send_draft(draft_id, payload, service)
+    try:
+        draft = await service.send_draft(
+            draft_id,
+            payload.sender,
+            payload.note,
+            force_dry_run=True,
+        )
+    except EmailSendError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Email dry-run failed: {exc}",
+        ) from exc
+    if draft is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Draft must exist and be approved before it can be marked sent",
+        )
+    return draft
 
 
 @router.post("/drafts/{draft_id}/send", response_model=EmailDraft)

@@ -61,7 +61,11 @@ class ContactCandidate:
 
     @property
     def found(self) -> bool:
-        return bool(self.contact_email or self.source_url)
+        return bool(self.contact_email or self.contact_type in {"contact_page", "linkedin_or_company_profile"})
+
+    @property
+    def has_sendable_email(self) -> bool:
+        return bool(self.contact_email)
 
 
 class _PageParser(HTMLParser):
@@ -171,9 +175,9 @@ class ContactFinderService:
             contact_role="Recruiting / Hiring",
             contact_type="fallback",
             source_url=urls[0],
-            confidence_score=35,
+            confidence_score=25,
             verification_status="fallback_to_source_url",
-            evidence=["No public contact email found; using the job/source URL for context."],
+            evidence=["No public contact email or contact page found; keep this as application-only unless a public email appears."],
         )
 
     def _candidate_from_page(

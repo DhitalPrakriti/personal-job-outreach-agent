@@ -1,6 +1,7 @@
 """Database-backed service for the personal outreach workflow."""
 
 from datetime import UTC, date, datetime, timedelta
+import re
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -13,6 +14,7 @@ from app.agents.draft_qa import DraftQAAgent
 from app.agents.email_inbox import EmailInboxAgent
 from app.agents.email_sender import EmailSenderAgent
 from app.agents.reply_classifier import ReplyClassifierAgent
+from app.core.config import get_settings
 from app.db.models import (
     AuditEventModel,
     ApplicationModel,
@@ -53,6 +55,7 @@ from app.schemas.pipeline import (
     ReplyClassifyRequest,
 )
 from app.services.ai_draft_service import AIDraftService
+from app.services.gmail_account_service import GmailAccountService
 from app.services.job_source_discovery import JobSourceDiscoveryService
 
 
@@ -62,6 +65,7 @@ class QueueResult:
         self.created = 0
         self.skipped = 0
         self.drafts: list[EmailDraftModel] = []
+        self.details: list[dict] = []
 
 
 class ReplySyncServiceResult:
@@ -71,6 +75,7 @@ class ReplySyncServiceResult:
         self.imported = 0
         self.skipped = 0
         self.replies: list[EmailReplyModel] = []
+        self.details: list[dict] = []
 
 
 class DuplicateCareerSourceError(ValueError):
@@ -86,16 +91,17 @@ class JobDiscoveryResult:
 
 DEFAULT_TARGET_ROLES = [
     "Junior AI Engineer",
-    "AI Engineer",
-    "Backend Developer",
-    "Software Developer",
-    "Web Developer",
-    "Full Stack Developer",
-    "Frontend Developer",
-    "Python Developer",
+    "Junior Backend Developer",
+    "Junior Software Developer",
+    "Entry Level Software Developer",
+    "New Grad Software Developer",
+    "Associate Software Developer",
+    "Junior Web Developer",
+    "Junior Python Developer",
     "Junior Developer",
-    "IT Support",
+    "IT Support Specialist",
     "QA Analyst",
+    "Junior QA Automation",
     "Automation Developer",
 ]
 
@@ -408,7 +414,7 @@ class PipelineService:
             lead.role_fit = research.role_fit
         if research.source_links:
             lead.source_links = self._merge_lines(lead.source_links, research.source_links, limit=2000)
-        lead.outreach_status = PipelineStage.COMPANY_RESEARCHED if not lead.email else PipelineStage.CONTACT_FOUND
+        lead.outreach_status = PipelineStage.CONTACT_SEARCH_NEEDED if not lead.email else PipelineStage.CONTACT_FOUND
         lead.suggested_first_message = research.suggested_context[:5000]
         self._audit(
             AuditAction.COMPANY_RESEARCHED,
@@ -442,11 +448,12 @@ class PipelineService:
             lead.outreach_status = PipelineStage.CONTACT_FOUND
         elif candidate.source_url:
             lead.first_name = candidate.contact_name or "Hiring Team"
-            lead.linkedin_url = candidate.source_url
-            lead.outreach_status = PipelineStage.CONTACT_FOUND if candidate.found else PipelineStage.COMPANY_RESEARCHED
+            if "linkedin.com/" in candidate.source_url.lower():
+                lead.linkedin_url = candidate.source_url
+            lead.outreach_status = PipelineStage.CONTACT_FOUND if candidate.found else PipelineStage.CONTACT_SEARCH_NEEDED
         else:
             lead.first_name = "Hiring Team"
-            lead.outreach_status = PipelineStage.COMPANY_RESEARCHED
+            lead.outreach_status = PipelineStage.CONTACT_SEARCH_NEEDED
 
         evidence_note = " ".join(candidate.evidence)
         if evidence_note:
@@ -521,7 +528,7 @@ class PipelineService:
                 job_url=lead.opportunity_url or lead.linkedin_url,
                 location=lead.opportunity_location,
                 status=ApplicationStatus.SAVED,
-                contact_found=bool(lead.email or lead.contact_source_url),
+                contact_found=self._lead_has_usable_contact(lead),
                 notes=lead.notes,
             )
         )
@@ -535,7 +542,7 @@ class PipelineService:
             return None
         application.status = ApplicationStatus.APPLIED
         application.applied_date = date.today()
-        application.contact_found = bool(lead.email or lead.contact_source_url)
+        application.contact_found = self._lead_has_usable_contact(lead)
         if note:
             application.notes = f"{application.notes or ''}\n\n{note}".strip()[:2000]
         self._sync_lead_from_application(application, lead)
@@ -544,6 +551,65 @@ class PipelineService:
             "application",
             application.id,
             f"Application marked applied: {application.job_title} at {application.company_name}",
+        )
+        await self.session.commit()
+        await self.session.refresh(application)
+        return application
+
+    async def track_application_only_from_lead(self, lead_id: UUID, note: str | None = None) -> ApplicationModel | None:
+        lead = await self.get_lead(lead_id)
+        if lead is None:
+            return None
+        application = await self.create_application_from_lead(lead_id)
+        if application is None:
+            return None
+
+        application.status = ApplicationStatus.APPLIED
+        application.applied_date = date.today()
+        application.contact_found = False
+        application.gmail_thread_id = None
+        application.notes = self._append_note(
+            application.notes,
+            note or "Tracked as application-only. No public outreach email is available.",
+        )[:2000]
+
+        lead.email = None
+        lead.first_name = "Hiring Team"
+        lead.contact_name = None
+        lead.contact_role = None
+        lead.contact_type = "application_only"
+        lead.contact_source_url = lead.opportunity_url or lead.linkedin_url or lead.contact_source_url
+        lead.contact_confidence_score = 0
+        lead.contact_verification_status = "application_only_no_public_email"
+        lead.outreach_status = PipelineStage.CONTACT_SEARCH_NEEDED
+
+        active_drafts = (
+            await self.session.execute(
+                select(EmailDraftModel).where(
+                    EmailDraftModel.lead_id == lead.id,
+                    EmailDraftModel.status.in_([DraftStatus.PENDING_APPROVAL, DraftStatus.APPROVED]),
+                )
+            )
+        ).scalars().all()
+        for draft in active_drafts:
+            draft.status = DraftStatus.REJECTED
+            draft.reviewer = draft.reviewer or "Prakriti"
+            draft.review_note = self._append_note(
+                draft.review_note,
+                "Closed email path because this opportunity is tracked application-only.",
+            )[:2000]
+            self._audit(
+                AuditAction.DRAFT_REJECTED,
+                "email_draft",
+                draft.id,
+                "Draft closed because opportunity was tracked application-only",
+            )
+
+        self._audit(
+            AuditAction.APPLICATION_UPDATED,
+            "application",
+            application.id,
+            f"Application-only tracking enabled: {application.job_title} at {application.company_name}",
         )
         await self.session.commit()
         await self.session.refresh(application)
@@ -662,13 +728,18 @@ class PipelineService:
                 "requires_human_review": False,
             }
 
-        if stage in {PipelineStage.COMPANY_RESEARCHED, PipelineStage.COMPANY_RESEARCHED.value}:
+        if stage in {
+            PipelineStage.COMPANY_RESEARCHED,
+            PipelineStage.COMPANY_RESEARCHED.value,
+            PipelineStage.CONTACT_SEARCH_NEEDED,
+            PipelineStage.CONTACT_SEARCH_NEEDED.value,
+        }:
             result = await self.find_contact_for_lead(lead.id)
             if result is None:
                 return None
             lead, contact_found, _evidence = result
-            message = "Contact found. Next step: generate a Gmail draft." if contact_found else (
-                "No public contact found. Kept Hiring Team/source URL fallback for manual review."
+            message = "Contact source found. Next step: generate a Gmail draft." if contact_found else (
+                "No public contact found. Track as application-only or add a real recipient email before Gmail outreach."
             )
             return {
                 "lead": lead,
@@ -682,10 +753,13 @@ class PipelineService:
             draft = await self.generate_mock_draft(
                 DraftGenerateRequest(
                     lead_id=lead.id,
-                    call_to_action="Open to a 15-minute conversation?",
+                    call_to_action=(
+                        "If your team considers junior candidates for similar roles, "
+                        "I'd be grateful for any advice or direction."
+                    ),
                     extra_context=(
                         "Use the opportunity research, public contact/source context, and Prakriti's profile. "
-                        "Keep the message concise, career-focused, and ready for human approval."
+                        "Keep the message concise, career-focused, early-career friendly, and ready for human approval."
                     ),
                 )
             )
@@ -709,12 +783,13 @@ class PipelineService:
         }
 
     async def run_pipeline_batch(self, payload: PipelineBatchRunRequest) -> dict:
+        batch_limit = max(1, min(payload.limit, get_settings().max_pipeline_batch_size))
         query = select(LeadModel)
         if payload.stages:
             query = query.where(LeadModel.outreach_status.in_([str(stage) for stage in payload.stages]))
         if payload.lead_grades:
             query = query.where(LeadModel.lead_grade.in_(payload.lead_grades))
-        query = query.order_by(LeadModel.created_at).limit(payload.limit)
+        query = query.order_by(LeadModel.created_at).limit(batch_limit)
         leads = list((await self.session.execute(query)).scalars().all())
 
         results = []
@@ -917,10 +992,11 @@ class PipelineService:
         )
 
     async def generate_draft_queue(self, payload: DraftQueueGenerateRequest) -> QueueResult:
+        draft_limit = max(1, min(payload.limit, get_settings().max_ai_drafts_per_run))
         query = select(LeadModel).where(
             LeadModel.outreach_status == payload.outreach_status,
             LeadModel.lead_grade.in_(payload.lead_grades),
-        ).order_by(LeadModel.created_at).limit(payload.limit)
+        ).order_by(LeadModel.created_at).limit(draft_limit)
         leads = list((await self.session.execute(query)).scalars().all())
         result = QueueResult()
         result.scanned = len(leads)
@@ -943,6 +1019,7 @@ class PipelineService:
         return result
 
     async def generate_followup_queue(self, payload: FollowUpQueueGenerateRequest) -> QueueResult:
+        followup_limit = max(1, min(payload.limit, get_settings().max_followups_per_run))
         drafts = list((await self.session.execute(
             select(EmailDraftModel).where(EmailDraftModel.status == DraftStatus.SENT).order_by(EmailDraftModel.created_at)
         )).scalars().all())
@@ -950,15 +1027,36 @@ class PipelineService:
         result = QueueResult()
         for sent_draft in drafts:
             sent_time = sent_draft.sent_at or sent_draft.created_at
-            if sent_time > cutoff or result.scanned >= payload.limit:
+            if result.scanned >= followup_limit:
+                break
+            lead = await self.get_lead(sent_draft.lead_id)
+            if sent_time > cutoff:
+                result.details.append(self._followup_detail(
+                    sent_draft,
+                    lead,
+                    "waiting",
+                    f"Last send is newer than the {payload.days_since_sent}-day follow-up window.",
+                ))
                 continue
             result.scanned += 1
-            lead = await self.get_lead(sent_draft.lead_id)
             has_reply = bool((await self.session.execute(
                 select(EmailReplyModel.id).where(EmailReplyModel.lead_id == sent_draft.lead_id).limit(1)
             )).scalar_one_or_none())
-            if lead is None or not lead.email or has_reply or await self.get_active_draft_for_lead(lead.id):
+            if lead is None:
                 result.skipped += 1
+                result.details.append(self._followup_detail(sent_draft, None, "skipped", "Original opportunity was not found."))
+                continue
+            if not lead.email:
+                result.skipped += 1
+                result.details.append(self._followup_detail(sent_draft, lead, "skipped", "No recipient email is saved for this opportunity."))
+                continue
+            if has_reply:
+                result.skipped += 1
+                result.details.append(self._followup_detail(sent_draft, lead, "skipped", "A reply is already tracked for this opportunity."))
+                continue
+            if await self.get_active_draft_for_lead(lead.id):
+                result.skipped += 1
+                result.details.append(self._followup_detail(sent_draft, lead, "skipped", "There is already an open draft waiting for review."))
                 continue
             context = "Follow-up to a prior sent outreach."
             if payload.extra_context:
@@ -969,9 +1067,33 @@ class PipelineService:
             if draft:
                 result.created += 1
                 result.drafts.append(draft)
+                result.details.append(self._followup_detail(sent_draft, lead, "created", "Follow-up draft created for human review.", draft))
             else:
                 result.skipped += 1
+                result.details.append(self._followup_detail(sent_draft, lead, "skipped", "Draft generation returned no draft."))
         return result
+
+    def _followup_detail(
+        self,
+        sent_draft: EmailDraftModel,
+        lead: LeadModel | None,
+        status: str,
+        reason: str,
+        followup_draft: EmailDraftModel | None = None,
+    ) -> dict:
+        return {
+            "status": status,
+            "reason": reason,
+            "lead_id": lead.id if lead else sent_draft.lead_id,
+            "company": lead.company if lead else None,
+            "job_title": lead.title if lead else None,
+            "contact_email": lead.email if lead else None,
+            "sent_draft_id": sent_draft.id,
+            "sent_subject": sent_draft.subject,
+            "sent_at": sent_draft.sent_at or sent_draft.created_at,
+            "followup_draft_id": followup_draft.id if followup_draft else None,
+            "followup_subject": followup_draft.subject if followup_draft else None,
+        }
 
     async def list_drafts(self) -> list[EmailDraftModel]:
         result = await self.session.execute(select(EmailDraftModel).order_by(EmailDraftModel.created_at))
@@ -1019,15 +1141,29 @@ class PipelineService:
             return None
         return await self._review_draft(draft, DraftStatus.REJECTED, LeadStatus.REJECTED, reviewer, note, AuditAction.DRAFT_REJECTED, "Draft rejected")
 
-    async def send_draft(self, draft_id: UUID, sender: str, note: str | None) -> EmailDraftModel | None:
+    async def send_draft(
+        self,
+        draft_id: UUID,
+        sender: str,
+        note: str | None,
+        *,
+        force_dry_run: bool = False,
+    ) -> EmailDraftModel | None:
         draft = await self.get_draft(draft_id)
         if draft is None or draft.status != DraftStatus.APPROVED:
             return None
         lead = await self.get_lead(draft.lead_id)
         if lead is None or not lead.email:
             return None
+        gmail_account = await GmailAccountService(self.session).get_default_credentials()
         try:
-            send_result = await EmailSenderAgent().send(lead.email, draft.subject, draft.body)
+            send_result = await EmailSenderAgent().send(
+                lead.email,
+                draft.subject,
+                draft.body,
+                gmail_account,
+                force_dry_run=force_dry_run,
+            )
         except Exception as exc:
             draft.send_error = str(exc)
             await self.session.commit()
@@ -1088,19 +1224,49 @@ class PipelineService:
         return reply
 
     async def sync_email_replies(self) -> ReplySyncServiceResult:
-        messages = await EmailInboxAgent().fetch_recent()
+        gmail_account = await GmailAccountService(self.session).get_default_credentials(require_reply_sync=True)
+        inbox_agent = EmailInboxAgent()
+        try:
+            messages = await inbox_agent.fetch_recent(gmail_account)
+        except TypeError:
+            messages = await inbox_agent.fetch_recent()
         result = ReplySyncServiceResult()
         result.fetched = len(messages)
+        own_addresses = self._own_reply_sync_addresses(gmail_account.email if gmail_account else None)
         for message in messages:
+            if message.from_email.lower().strip() in own_addresses:
+                result.skipped += 1
+                result.details.append(
+                    self._reply_sync_detail(
+                        message,
+                        status="skipped",
+                        reason="Skipped because this message was sent from your connected Gmail account, not from an employer or recruiter.",
+                    )
+                )
+                continue
             duplicate = (await self.session.execute(
                 select(EmailReplyModel.id).where(EmailReplyModel.provider_message_id == message.provider_message_id)
             )).scalar_one_or_none()
             if duplicate:
                 result.skipped += 1
+                result.details.append(
+                    self._reply_sync_detail(
+                        message,
+                        status="skipped",
+                        reason="Already imported this Gmail message.",
+                    )
+                )
                 continue
-            lead, draft = await self._reply_target_for_message(message)
+            lead, draft, match_reason = await self._reply_target_for_message(message)
             if lead is None or draft is None:
                 result.skipped += 1
+                result.details.append(
+                    self._reply_sync_detail(
+                        message,
+                        status="skipped",
+                        reason=match_reason,
+                    )
+                )
                 continue
             result.matched += 1
             classification = await ReplyClassifierAgent().classify(message.body)
@@ -1129,10 +1295,32 @@ class PipelineService:
             self._audit(AuditAction.REPLY_SYNCED, "email_reply", reply.id, f"Email reply synced as {classification.intent.value}")
             result.imported += 1
             result.replies.append(reply)
+            result.details.append(
+                self._reply_sync_detail(
+                    message,
+                    status="imported",
+                    reason=f"{match_reason} Classified as {classification.intent.value}.",
+                    lead=lead,
+                    draft=draft,
+                    intent=classification.intent,
+                )
+            )
         await self.session.commit()
         for reply in result.replies:
             await self.session.refresh(reply)
         return result
+
+    def _own_reply_sync_addresses(self, connected_email: str | None) -> set[str]:
+        return {
+            email.lower().strip()
+            for email in (
+                connected_email,
+                get_settings().google_sender_email,
+                get_settings().google_inbox_email,
+                get_settings().app_allowed_email,
+            )
+            if email
+        }
 
     async def list_replies(self) -> list[EmailReplyModel]:
         result = await self.session.execute(select(EmailReplyModel).order_by(EmailReplyModel.created_at))
@@ -1353,7 +1541,7 @@ class PipelineService:
     def _parse_profile_list(value: str | None) -> list[str]:
         return [item.strip() for item in str(value or "").splitlines() if item.strip()]
 
-    async def _reply_target_for_message(self, message) -> tuple[LeadModel | None, EmailDraftModel | None]:
+    async def _reply_target_for_message(self, message) -> tuple[LeadModel | None, EmailDraftModel | None, str]:
         draft = None
         lead = None
         thread_keys = [
@@ -1378,7 +1566,7 @@ class PipelineService:
             ).scalar_one_or_none()
             if draft is not None:
                 lead = await self.get_lead(draft.lead_id)
-                return lead, draft
+                return lead, draft, "Matched a sent draft by Gmail thread/message ID."
 
             application = (
                 await self.session.execute(
@@ -1393,7 +1581,7 @@ class PipelineService:
                 if lead is not None:
                     draft = await self._latest_sent_draft_for_lead(lead.id)
                     if draft is not None:
-                        return lead, draft
+                        return lead, draft, "Matched a tracked application by Gmail thread/message ID."
 
         lead = (
             await self.session.execute(
@@ -1401,8 +1589,37 @@ class PipelineService:
             )
         ).scalar_one_or_none()
         if lead is None:
-            return None, None
-        return lead, await self._latest_sent_draft_for_lead(lead.id)
+            return None, None, "No sent draft, tracked application, or contact email matched this message."
+        draft = await self._latest_sent_draft_for_lead(lead.id)
+        if draft is None:
+            return lead, None, "Sender email matched a contact, but no sent draft exists for that opportunity."
+        return lead, draft, "Matched the sender email to an opportunity contact."
+
+    @staticmethod
+    def _reply_sync_detail(
+        message,
+        *,
+        status: str,
+        reason: str,
+        lead: LeadModel | None = None,
+        draft: EmailDraftModel | None = None,
+        intent=None,
+    ) -> dict:
+        return {
+            "status": status,
+            "reason": reason,
+            "from_email": message.from_email,
+            "subject": message.subject,
+            "provider_message_id": message.provider_message_id,
+            "provider_thread_id": message.provider_thread_id,
+            "received_at": message.received_at,
+            "lead_id": lead.id if lead else None,
+            "company": lead.company if lead else None,
+            "job_title": lead.title if lead else None,
+            "draft_id": draft.id if draft else None,
+            "draft_subject": draft.subject if draft else None,
+            "intent": intent,
+        }
 
     async def _latest_sent_draft_for_lead(self, lead_id: UUID) -> EmailDraftModel | None:
         return (
@@ -1584,6 +1801,7 @@ class PipelineService:
             )
             if part
         ).lower()
+        seniority_text = " ".join(part for part in (item.title, item.description) if part).lower()
         score = 35
         notes: list[str] = []
 
@@ -1612,6 +1830,14 @@ class PipelineService:
             score += min(20, len(matched_skills) * 5)
             notes.append(f"matched skills: {', '.join(matched_skills)}")
 
+        if PipelineService._is_early_career_role(seniority_text):
+            score += 15
+            notes.append("early-career signal: junior/entry/new-grad/associate wording")
+
+        if PipelineService._is_seniority_mismatch(seniority_text, payload.target_roles):
+            score -= 45
+            notes.append("seniority mismatch: senior/principal/lead role is not aligned with recent-graduate search")
+
         if item.contact_email:
             score += 10
             notes.append("contact email available")
@@ -1621,6 +1847,37 @@ class PipelineService:
 
         score = max(0, min(score, 100))
         return score, "; ".join(notes) if notes else "no explicit role, location, or skill matches"
+
+    @staticmethod
+    def _is_early_career_role(text: str) -> bool:
+        return bool(
+            re.search(
+                r"\b(junior|jr\.?|entry\s*level|new\s*grad|new\s*graduate|graduate|"
+                r"associate|intern|internship|co-?op|early\s*career|0\s*-\s*2\s*years)\b",
+                text,
+            )
+        )
+
+    @staticmethod
+    def _is_seniority_mismatch(text: str, targets: list[str]) -> bool:
+        if PipelineService._allows_senior_roles(targets):
+            return False
+        senior_title = bool(
+            re.search(
+                r"\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect|intermediate)\b"
+                r"|\b(ii|iii|iv)\b",
+                text,
+            )
+        )
+        years_required = bool(re.search(r"\b([3-9]|[1-9][0-9])\+?\s*(years|yrs)\b", text))
+        return senior_title or years_required
+
+    @staticmethod
+    def _allows_senior_roles(targets: list[str]) -> bool:
+        return any(
+            re.search(r"\b(senior|sr\.?|staff|principal|lead|manager|director|architect)\b", target.lower())
+            for target in targets
+        )
 
     @staticmethod
     def _normalized_source(source: str | None) -> str:
@@ -1687,9 +1944,19 @@ class PipelineService:
         data["source"] = data.get("source") or PipelineService._application_source_from_lead(lead)
         data["job_url"] = data.get("job_url") or lead.opportunity_url or lead.linkedin_url
         data["location"] = data.get("location") or lead.opportunity_location
-        data["contact_found"] = data.get("contact_found") or bool(lead.email or lead.contact_source_url)
+        data["contact_found"] = data.get("contact_found") or PipelineService._lead_has_usable_contact(lead)
         data["notes"] = data.get("notes") or lead.notes
         return data
+
+    @staticmethod
+    def _lead_has_usable_contact(lead: LeadModel) -> bool:
+        if lead.email:
+            return True
+        return bool(
+            lead.contact_type
+            and lead.contact_type != "fallback"
+            and lead.contact_verification_status not in {None, "not_found", "fallback_to_source_url", "no_public_source"}
+        )
 
     @staticmethod
     def _application_source_from_lead(lead: LeadModel) -> str:
@@ -1707,7 +1974,7 @@ class PipelineService:
         if lead is None:
             return
         if application.status == ApplicationStatus.CONTACT_SEARCH_NEEDED:
-            lead.outreach_status = PipelineStage.COMPANY_RESEARCHED
+            lead.outreach_status = PipelineStage.CONTACT_SEARCH_NEEDED
         elif application.status == ApplicationStatus.CONTACT_FOUND:
             lead.outreach_status = PipelineStage.CONTACT_FOUND
         elif application.status == ApplicationStatus.OUTREACH_DRAFTED:

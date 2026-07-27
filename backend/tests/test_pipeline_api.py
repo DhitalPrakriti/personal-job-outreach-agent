@@ -1,6 +1,11 @@
 import asyncio
+import os
 from datetime import UTC, datetime
 from types import SimpleNamespace
+
+os.environ["AI_DRAFTING_ENABLED"] = "false"
+os.environ["EMAIL_SENDING_ENABLED"] = "false"
+os.environ["EMAIL_REPLY_SYNC_ENABLED"] = "true"
 
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
@@ -10,7 +15,7 @@ from app.agents.company_research import CompanyResearchAgent, CompanyResearchRes
 from app.db.models import Base
 from app.db.session import async_session, init_db
 from app.main import app
-from app.schemas.pipeline import JobDiscoveryItem, LeadCreate
+from app.schemas.pipeline import JobDiscoveryItem
 from app.services.job_source_discovery import JobSourceDiscoveryService
 from app.services.contact_finder import ContactFinderService, _PageParser
 
@@ -152,7 +157,7 @@ def test_profile_settings_defaults_and_updates() -> None:
     default_profile = default_response.json()
     assert default_profile["owner_name"] == "Prakriti Dhital"
     assert default_profile["primary_email"] == "prakriti.dhital.tech@gmail.com"
-    assert "Backend Developer" in default_profile["target_roles"]
+    assert "Junior Backend Developer" in default_profile["target_roles"]
     assert "Remote Canada" in default_profile["target_locations"]
     assert "Python" in default_profile["target_skills"]
 
@@ -453,7 +458,7 @@ def test_company_research_agent_extracts_public_page_signals(monkeypatch) -> Non
     assert "FastAPI" in researched["tech_stack"]
     assert "React" in researched["tech_stack"]
     assert "https://signal.example/about" in researched["source_links"]
-    assert researched["outreach_status"] == "COMPANY_RESEARCHED"
+    assert researched["outreach_status"] == "CONTACT_SEARCH_NEEDED"
 
 
 def test_research_company_route_saves_enriched_agent_result(monkeypatch) -> None:
@@ -603,12 +608,19 @@ def test_linkedin_tracker_import_creates_opportunity_contact_research_and_action
         "/api/v1/drafts/generate",
         json={
             "lead_id": lead["id"],
-            "call_to_action": "Open to a 15-minute conversation?",
+            "call_to_action": "If your team considers junior candidates for similar roles, I’d be grateful for any advice or direction.",
             "extra_context": "Use the LinkedIn opportunity and recruiter profile context.",
         },
     )
     assert draft_response.status_code == 201
-    assert draft_response.json()["status"] == "pending_approval"
+    draft = draft_response.json()
+    assert draft["status"] == "pending_approval"
+    draft_body = draft["body"].lower()
+    assert "fit score" not in draft_body
+    assert "matched skills" not in draft_body
+    assert "no scraping" not in draft_body
+    assert "linkedin automation" not in draft_body
+    assert "contact/profile link available" not in draft_body
 
     audit_actions = [event["action"] for event in client.get("/api/v1/audit-events").json()]
     assert "opportunity_imported" in audit_actions
@@ -700,6 +712,93 @@ def test_application_tracker_supports_manual_and_opportunity_linked_applications
     assert "application_deleted" in audit_actions
 
 
+def test_placeholder_linkedin_draft_does_not_expose_internal_pipeline_notes() -> None:
+    import_response = client.post(
+        "/api/v1/source-trackers/linkedin/import",
+        json={
+            "target_roles": ["Junior AI Engineer"],
+            "target_locations": ["Canada"],
+            "target_skills": ["AI", "Automation"],
+            "opportunities": [
+                {
+                    "source_url": "https://www.linkedin.com/jobs/view/4397405005/",
+                    "company_name": "Company from pasted job",
+                    "job_title": "LinkedIn Job Opportunity",
+                    "required_skills": ["AI"],
+                }
+            ],
+        },
+    )
+    assert import_response.status_code == 201
+    lead = import_response.json()["leads"][0]
+
+    draft_response = client.post(
+        "/api/v1/drafts/generate",
+        json={
+            "lead_id": lead["id"],
+            "call_to_action": "If your team considers junior candidates for similar roles, I’d be grateful for any advice or direction.",
+            "extra_context": "Use the opportunity research and public source context.",
+        },
+    )
+    assert draft_response.status_code == 201
+    body = draft_response.json()["body"].lower()
+    assert "company from pasted job" not in body
+    assert "linkedin job opportunity" not in body
+    assert "fit score" not in body
+    assert "matched skills" not in body
+    assert "no scraping" not in body
+    assert "linkedin automation" not in body
+    assert "contact/profile link available" not in body
+
+
+def test_position_specific_draft_uses_recent_grad_tone_without_internal_scoring() -> None:
+    lead = client.post(
+        "/api/v1/leads",
+        json={
+            "email": "careers@creator.example",
+            "first_name": "Hiring Team",
+            "company": "Creator",
+            "title": "Backend Engineer",
+            "source": "ADZUNA",
+            "opportunity_location": "Vancouver",
+            "opportunity_description": (
+                "Build backend APIs, data workflows, and automation for a commerce platform. "
+                "Work with Python services, SQL databases, and product engineers."
+            ),
+            "tech_stack": "Python, SQL, APIs",
+            "role_fit": "Fit score 85/100. matched skills: Python, SQL; matched locations: Vancouver",
+            "fit_score": 85,
+            "outreach_status": "CONTACT_FOUND",
+        },
+    ).json()
+
+    response = client.post(
+        "/api/v1/drafts/generate",
+        json={
+            "lead_id": lead["id"],
+            "call_to_action": (
+                "If your team considers junior candidates for similar roles, "
+                "I'd be grateful for any advice or direction."
+            ),
+            "extra_context": "Use a recent-graduate job-search tone.",
+        },
+    )
+
+    assert response.status_code == 201
+    draft = response.json()
+    body = draft["body"].lower()
+    assert draft["subject"] == "Backend Engineer role at Creator"
+    assert "backend engineer" in body
+    assert "creator" in body
+    assert "recent graduate" in body
+    assert "junior candidates" in body
+    assert "15-minute" not in body
+    assert "fit score" not in body
+    assert "matched skills" not in body
+    assert "technical skills align" not in body
+    assert "upcoming engineering milestones" not in body
+
+
 def test_generate_mock_draft_creates_pending_approval_draft() -> None:
     lead = client.post(
         "/api/v1/leads",
@@ -724,7 +823,7 @@ def test_generate_mock_draft_creates_pending_approval_draft() -> None:
         json={
             "lead_id": lead["id"],
             "campaign_id": campaign["id"],
-            "call_to_action": "Open to a brief conversation next week?",
+            "call_to_action": "If your team considers junior candidates for similar roles, I’d be grateful for any advice or direction.",
             "extra_context": "Use a concise job-search networking tone.",
         },
     )
@@ -733,9 +832,9 @@ def test_generate_mock_draft_creates_pending_approval_draft() -> None:
     draft = response.json()
     assert draft["status"] == "pending_approval"
     assert draft["generated_by"] == "mock_generator"
-    assert draft["subject"] == "Quick idea for Example Co"
+    assert draft["subject"] == "Question about junior roles at Example Co"
     assert "Hi Ian" in draft["body"]
-    assert "Open to a brief conversation next week?" in draft["body"]
+    assert "junior candidates" in draft["body"]
     assert "Use a concise job-search networking tone." in draft["context_summary"]
 
 
@@ -778,6 +877,43 @@ def test_approved_draft_can_be_marked_sent_without_real_email() -> None:
 
     audit_events = client.get("/api/v1/audit-events").json()
     assert audit_events[-1]["action"] == "draft_sent"
+
+
+def test_application_only_clears_recipient_and_active_gmail_draft() -> None:
+    lead = client.post(
+        "/api/v1/leads",
+        json={
+            "email": "prakriti.dhital.tech@gmail.com",
+            "first_name": "Hiring Team",
+            "company": "No Email Co",
+            "title": "Junior Backend Developer",
+            "opportunity_url": "https://no-email.example/jobs/backend",
+            "outreach_status": "CONTACT_FOUND",
+        },
+    ).json()
+    draft = client.post("/api/v1/drafts/generate", json={"lead_id": lead["id"]}).json()
+    client.post(
+        f"/api/v1/drafts/{draft['id']}/approve",
+        json={"reviewer": "Prakriti", "note": "Approved before deciding application-only."},
+    )
+
+    response = client.post(f"/api/v1/leads/{lead['id']}/track-application-only")
+
+    assert response.status_code == 200
+    application = response.json()
+    assert application["status"] == "APPLIED"
+    assert application["contact_found"] is False
+    assert application["gmail_thread_id"] is None
+
+    refreshed_lead = client.get(f"/api/v1/leads/{lead['id']}").json()
+    assert refreshed_lead["email"] is None
+    assert refreshed_lead["outreach_status"] == "CONTACT_SEARCH_NEEDED"
+    assert refreshed_lead["contact_type"] == "application_only"
+    assert refreshed_lead["contact_verification_status"] == "application_only_no_public_email"
+
+    refreshed_draft = next(item for item in client.get("/api/v1/drafts").json() if item["id"] == draft["id"])
+    assert refreshed_draft["status"] == "rejected"
+    assert "application-only" in refreshed_draft["review_note"]
 
 
 def test_sent_draft_reply_can_be_classified_without_ai() -> None:
@@ -887,6 +1023,9 @@ def test_email_reply_sync_matches_application_by_gmail_thread(monkeypatch) -> No
     payload = response.json()
     assert payload["matched"] == 1
     assert payload["imported"] == 1
+    assert payload["details"][0]["status"] == "imported"
+    assert "Matched a tracked application" in payload["details"][0]["reason"]
+    assert payload["details"][0]["company"] == "Thread Match Co"
     assert payload["replies"][0]["provider_thread_id"] == "gmail-thread-123"
     assert payload["replies"][0]["intent"] == "interview"
 

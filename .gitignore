@@ -46,6 +46,7 @@ docker-compose.override.yml
 logs/
 *.log
 npm-debug.log*
+.tmp/
 
 # Testing
 .coverage

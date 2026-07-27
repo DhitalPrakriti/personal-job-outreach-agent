@@ -63,6 +63,7 @@ class PipelineStage(StrEnum):
     DISCOVERED = "DISCOVERED"
     ANALYZED = "ANALYZED"
     COMPANY_RESEARCHED = "COMPANY_RESEARCHED"
+    CONTACT_SEARCH_NEEDED = "CONTACT_SEARCH_NEEDED"
     CONTACT_FOUND = "CONTACT_FOUND"
     DRAFTED = "DRAFTED"
     PENDING_APPROVAL = "PENDING_APPROVAL"
@@ -216,7 +217,7 @@ class JobSearchRequest(BaseModel):
     target_skills: list[str] = Field(default_factory=list)
     sources: list[str] = Field(default_factory=lambda: ["remotive", "remoteok", "adzuna"])
     posted_within_days: int = Field(default=14, ge=1, le=120)
-    max_jobs_per_source: int = Field(default=20, ge=1, le=100)
+    max_jobs_per_source: int = Field(default=10, ge=1, le=30)
     import_results: bool = True
 
     @field_validator("sources")
@@ -657,7 +658,7 @@ class DraftGenerateRequest(BaseModel):
     lead_id: UUID
     campaign_id: UUID | None = None
     call_to_action: str = Field(
-        default="Would it be worth a quick conversation next week?",
+        default="If your team considers junior candidates for similar roles, I’d be grateful for any advice or direction.",
         max_length=500,
     )
     extra_context: str | None = Field(default=None, max_length=2000)
@@ -666,15 +667,21 @@ class DraftGenerateRequest(BaseModel):
 class DraftQueueGenerateRequest(BaseModel):
     outreach_status: str = Field(default=PipelineStage.CONTACT_FOUND, max_length=100)
     lead_grades: list[str] = Field(default_factory=lambda: ["High Priority", "Medium Priority"])
-    limit: int = Field(default=25, ge=1, le=200)
-    call_to_action: str = Field(default="Open to a brief conversation next week?", max_length=500)
+    limit: int = Field(default=5, ge=1, le=25)
+    call_to_action: str = Field(
+        default="If your team considers junior candidates for similar roles, I’d be grateful for any advice or direction.",
+        max_length=500,
+    )
     extra_context: str | None = Field(default=None, max_length=2000)
 
 
 class FollowUpQueueGenerateRequest(BaseModel):
     days_since_sent: int = Field(default=3, ge=0, le=90)
-    limit: int = Field(default=25, ge=1, le=200)
-    call_to_action: str = Field(default="Would it be worth a quick conversation this week?", max_length=500)
+    limit: int = Field(default=5, ge=1, le=25)
+    call_to_action: str = Field(
+        default="I’d be grateful for any guidance on whether this type of role could be a good fit for someone with my background.",
+        max_length=500,
+    )
     extra_context: str | None = Field(default=None, max_length=2000)
 
 
@@ -728,7 +735,7 @@ class PipelineBatchRunRequest(BaseModel):
         max_length=10,
     )
     lead_grades: list[str] = Field(default_factory=list, max_length=10)
-    limit: int = Field(default=10, ge=1, le=50)
+    limit: int = Field(default=5, ge=1, le=25)
     allow_draft_generation: bool = False
 
 
@@ -779,11 +786,42 @@ class DraftQueueGenerateResult(BaseModel):
     drafts: list[EmailDraft]
 
 
+class FollowUpRunDetail(BaseModel):
+    status: str
+    reason: str
+    lead_id: UUID | None = None
+    company: str | None = None
+    job_title: str | None = None
+    contact_email: str | None = None
+    sent_draft_id: UUID | None = None
+    sent_subject: str | None = None
+    sent_at: datetime | None = None
+    followup_draft_id: UUID | None = None
+    followup_subject: str | None = None
+
+
 class FollowUpQueueGenerateResult(BaseModel):
     scanned: int
     created: int
     skipped: int
     drafts: list[EmailDraft]
+    details: list[FollowUpRunDetail] = Field(default_factory=list)
+
+
+class ReplySyncDetail(BaseModel):
+    status: str
+    reason: str
+    from_email: str | None = None
+    subject: str | None = None
+    provider_message_id: str | None = None
+    provider_thread_id: str | None = None
+    received_at: datetime | None = None
+    lead_id: UUID | None = None
+    company: str | None = None
+    job_title: str | None = None
+    draft_id: UUID | None = None
+    draft_subject: str | None = None
+    intent: ReplyIntent | None = None
 
 
 class ReplySyncResult(BaseModel):
@@ -792,6 +830,7 @@ class ReplySyncResult(BaseModel):
     imported: int
     skipped: int
     replies: list[EmailReply]
+    details: list[ReplySyncDetail] = Field(default_factory=list)
 
 
 class AuditEvent(BaseModel):

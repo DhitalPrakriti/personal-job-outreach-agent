@@ -13,6 +13,20 @@ class DraftQAAgent:
     """Apply deterministic checks before a draft reaches human approval."""
 
     SPAM_TERMS = ("guaranteed", "act now", "limited time", "100% free", "risk-free")
+    INTERNAL_TERMS = (
+        "fit score",
+        "matched skills",
+        "matched locations",
+        "contact/profile link available",
+        "source adapter",
+        "verification status",
+    )
+    SENIOR_TONE_TERMS = (
+        "upcoming engineering milestones",
+        "data layer evolution",
+        "open to a 15-minute conversation",
+        "i would welcome the opportunity to discuss how my technical skills align",
+    )
 
     async def review(self, subject: str, body: str, first_name: str | None) -> DraftQAResult:
         blocking: list[str] = []
@@ -35,6 +49,16 @@ class DraftQAAgent:
         matched_spam = [term for term in self.SPAM_TERMS if term in normalized]
         if matched_spam:
             blocking.append(f"Spam-like language detected: {', '.join(matched_spam)}.")
+        matched_internal = [term for term in self.INTERNAL_TERMS if term in normalized]
+        if matched_internal:
+            blocking.append(
+                f"Internal pipeline language detected: {', '.join(matched_internal)}."
+            )
+        matched_senior_tone = [term for term in self.SENIOR_TONE_TERMS if term in normalized]
+        if matched_senior_tone:
+            warnings.append(
+                "Draft uses wording that sounds too senior or too meeting-focused for recent-grad outreach."
+            )
 
         if blocking:
             return DraftQAResult("blocked", " ".join(blocking + warnings))
