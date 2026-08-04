@@ -4,6 +4,8 @@ A production-oriented job search command center for discovering opportunities, t
 
 This project is built as a personal automation system, not a bulk email tool. LinkedIn and Indeed are handled through manual-safe URL and description imports. Gmail sending is gated by human approval, live sending is disabled by default, LLM usage is routed through LiteLLM with budget caps, and every important workflow action is recorded in an audit trail.
 
+Live App: https://personal-outreach-agent-21647215439.us-central1.run.app/ 
+
 ## What It Does
 
 - Discovers early-career tech opportunities from public job feeds, saved career-page sources, and manual imports.
