@@ -8,7 +8,7 @@ Live App: https://personal-outreach-agent-21647215439.us-central1.run.app/
 
 ## 🎥 Project Demo
 
-[▶ Watch the 3-minute demo](YOUR_VIDEO_LINK)
+[▶ Watch the 3-minute demo](https://www.youtube.com/watch?v=0ugqV4Pgr5k)
 
 The demo covers:
 - Multi-source job discovery
