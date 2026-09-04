@@ -2382,7 +2382,7 @@ function renderCompanyResearch() {
 
 function renderDrafts() {
   const activeDrafts = state.drafts.filter((draft) => (
-    draft.status === "pending_approval"
+    ["pending_approval", "approved"].includes(draft.status)
   ));
 
   elements.draftCount.textContent = activeDrafts.length;
@@ -2483,7 +2483,7 @@ function renderDrafts() {
     `;
   }).join("") : `
     <div class="empty">
-      No drafts need approval right now. Approved drafts move to Gmail Outreach for recipient email and send/dry-run.
+      No drafts need review or sending right now.
     </div>
   `;
   elements.draftsList.innerHTML = activeMarkup;
