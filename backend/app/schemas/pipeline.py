@@ -96,6 +96,7 @@ class AuditAction(StrEnum):
     DRAFT_APPROVED = "draft_approved"
     DRAFT_REJECTED = "draft_rejected"
     DRAFT_SENT = "draft_sent"
+    DRAFT_ARCHIVED = "draft_archived"
     REPLY_CLASSIFIED = "reply_classified"
     REPLY_SYNCED = "reply_synced"
 
@@ -715,6 +716,26 @@ class EmailDraft(BaseModel):
     send_error: str | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class DraftArchive(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    original_draft_id: UUID
+    lead_id: UUID
+    company: str | None = None
+    job_title: str | None = None
+    contact_email: str | None = None
+    subject: str
+    body: str
+    generated_by: str
+    status: str
+    reviewer: str | None = None
+    review_note: str | None = None
+    archived_reason: str
+    original_created_at: datetime
+    archived_at: datetime
 
 
 class PipelineStepResult(BaseModel):

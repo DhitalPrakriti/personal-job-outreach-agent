@@ -38,6 +38,7 @@ async def init_db() -> None:
         await connection.execute(text("alter type audit_action add value if not exists 'CAREER_SOURCE_DELETED'"))
         await connection.execute(text("alter type audit_action add value if not exists 'CAREER_SOURCE_SCANNED'"))
         await connection.execute(text("alter type audit_action add value if not exists 'DRAFT_UPDATED'"))
+        await connection.execute(text("alter type audit_action add value if not exists 'DRAFT_ARCHIVED'"))
         await connection.execute(text("alter type audit_action add value if not exists 'REPLY_SYNCED'"))
         await connection.execute(text("alter type reply_intent add value if not exists 'INTERVIEW'"))
         await connection.execute(text("alter type reply_intent add value if not exists 'RESUME_REQUESTED'"))

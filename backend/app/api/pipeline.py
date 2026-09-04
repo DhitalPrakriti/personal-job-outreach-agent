@@ -23,6 +23,7 @@ from app.schemas.pipeline import (
     ContactResearch,
     ContactFinderResult,
     DraftCreate,
+    DraftArchive,
     DraftQueueGenerateRequest,
     DraftQueueGenerateResult,
     DraftGenerateRequest,
@@ -726,6 +727,13 @@ async def create_draft(
 @router.get("/drafts", response_model=list[EmailDraft])
 async def list_drafts(service: PipelineService = Depends(get_pipeline_service)) -> list[EmailDraft]:
     return await service.list_drafts()
+
+
+@router.get("/draft-archives", response_model=list[DraftArchive])
+async def list_draft_archives(
+    service: PipelineService = Depends(get_pipeline_service),
+) -> list[DraftArchive]:
+    return await service.list_draft_archives()
 
 
 @router.post("/drafts/generate", response_model=EmailDraft, status_code=status.HTTP_201_CREATED)

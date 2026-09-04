@@ -135,6 +135,7 @@ const state = {
   campaigns: [],
   drafts: [],
   replies: [],
+  draftArchives: [],
   gmailAccounts: [],
   auditEvents: [],
   lastReplySync: null,
@@ -207,6 +208,8 @@ const elements = {
   queueSummary: document.querySelector("#queue-summary"),
   findDraftEmails: document.querySelector("#find-draft-emails"),
   draftsList: document.querySelector("#drafts-list"),
+  draftArchivesList: document.querySelector("#draft-archives-list"),
+  draftArchiveCount: document.querySelector("#draft-archive-count"),
   sentSummary: document.querySelector("#sent-summary"),
   sentList: document.querySelector("#sent-list"),
   replySummary: document.querySelector("#reply-summary"),
@@ -1271,8 +1274,6 @@ function renderSettingsOverview() {
       ["App Access", readiness.access?.auth_enabled ? "Login required" : "Local open", "Use login before Cloud Run public deployment", !readiness.access?.auth_enabled],
       ["Database", readiness.database?.connected ? "Connected" : "Unavailable", "Pipeline state and audit logs", readiness.database?.connected],
       [
-        "Gmail",
-        gmail.operational ? "Connected" : "Needs real Gmail",
         gmail.expected ? `Expected ${gmail.expected}; active ${sender}` : sender,
         gmail.operational,
       ],
@@ -1290,9 +1291,9 @@ function renderSettingsOverview() {
 
   if (elements.settingsSafetySummary) {
     const cards = [
-      ["Human Approval", "Required", "You review every draft before send", true],
-      ["Gmail Sending", readiness.email?.sending_enabled ? "Live" : "Dry run", "Keep dry run for testing and demos", !readiness.email?.sending_enabled],
-      ["Reply Sync", readiness.email?.reply_sync_enabled ? "Enabled" : "Manual", "Can be enabled after send flow is tested", true],
+
+    const elements = {
+      apiStatus: document.querySelector("#api-status"),
       ["LinkedIn / Indeed", "Manual-safe", "Track URLs and pasted descriptions only", true],
       ["Secrets", "Backend only", "Keys are never shown in the dashboard", true],
     ];
@@ -2385,16 +2386,7 @@ function renderDrafts() {
   ));
 
   elements.draftCount.textContent = activeDrafts.length;
-  if (!activeDrafts.length) {
-    elements.draftsList.innerHTML = `
-      <div class="empty">
-        No drafts need approval right now. Approved drafts move to Gmail Outreach for recipient email and send/dry-run.
-      </div>
-    `;
-    return;
-  }
-
-  elements.draftsList.innerHTML = activeDrafts.map((draft) => {
+  const activeMarkup = activeDrafts.length ? activeDrafts.map((draft) => {
     const lead = state.leads.find((item) => item.id === draft.lead_id);
     const jobUrl = lead?.opportunity_url || lead?.linkedin_url;
     const contactUrl = lead?.contact_source_url && lead.contact_source_url !== jobUrl
@@ -2489,7 +2481,43 @@ function renderDrafts() {
         </div>
       </article>
     `;
-  }).join("");
+  }).join("") : `
+    <div class="empty">
+      No drafts need approval right now. Approved drafts move to Gmail Outreach for recipient email and send/dry-run.
+    </div>
+  `;
+  elements.draftsList.innerHTML = activeMarkup;
+  renderDraftArchives();
+}
+
+function renderDraftArchives() {
+  const currentHistory = state.drafts
+    .filter((draft) => draft.status !== "pending_approval")
+    .map((draft) => ({
+      ...draft,
+      company: state.leads.find((lead) => lead.id === draft.lead_id)?.company,
+      job_title: state.leads.find((lead) => lead.id === draft.lead_id)?.title,
+      archived_at: draft.updated_at || draft.created_at,
+      archived_reason: "Current draft record",
+    }));
+  const history = [...currentHistory, ...(state.draftArchives || [])]
+    .sort((left, right) => new Date(right.archived_at) - new Date(left.archived_at));
+  if (elements.draftArchiveCount) elements.draftArchiveCount.textContent = history.length;
+  if (!elements.draftArchivesList) return;
+  if (!history.length) {
+    elements.draftArchivesList.innerHTML = `<div class="empty">No draft history yet.</div>`;
+    return;
+  }
+  elements.draftArchivesList.innerHTML = history.map((archive) => `
+    <article class="draft-card archived-draft-card">
+      <p class="muted">${escapeHtml([archive.company, archive.job_title].filter(Boolean).join(" - ") || "Deleted opportunity")}</p>
+      <p>${badge(archive.status)} <span class="badge">${archive.archived_reason === "Current draft record" ? "History" : "Archived"}</span></p>
+      <h3>${escapeHtml(archive.subject)}</h3>
+      <pre>${escapeHtml(archive.body)}</pre>
+      <p class="muted compact-copy">Archived ${formatDate(archive.archived_at)} because: ${escapeHtml(archive.archived_reason)}</p>
+      ${archive.contact_email ? `<p class="muted compact-copy">Recipient: ${escapeHtml(archive.contact_email)}</p>` : ""}
+    </article>
+  `).join("");
 }
 
 function renderSentSummary() {
@@ -2848,6 +2876,7 @@ function renderSentEmails() {
         <thead>
           <tr>
             <th>Opportunity</th>
+              <th>Approved Draft</th>
             <th>Best Source</th>
             <th>Add Recipient</th>
             <th>Action</th>
@@ -2863,6 +2892,10 @@ function renderSentEmails() {
                   <strong>${escapeHtml(lead?.company || "Unknown company")}</strong>
                   <span>${escapeHtml(lead?.title || "Opportunity")}</span>
                   <small>${escapeHtml(lead?.contact_verification_status || "email needed")}</small>
+                </td>
+                <td class="application-notes-cell">
+                  <span>${escapeHtml(draft.subject)}</span>
+                  <small>${escapeHtml(truncate(draft.body, 160))}</small>
                 </td>
                 <td>${sourceUrl ? `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">Open source</a>` : "-"}</td>
                 <td>
@@ -3070,7 +3103,7 @@ async function loadAll() {
     await api("/api/v1/system/database");
     setApiStatus(true, "API connected");
 
-    const [readiness, profile, leads, applications, careerSources, campaigns, drafts, replies, auditEvents, gmailAccounts] = await Promise.all([
+    const [readiness, profile, leads, applications, careerSources, campaigns, drafts, draftArchives, replies, auditEvents, gmailAccounts] = await Promise.all([
       api("/api/v1/system/readiness"),
       api("/api/v1/profile"),
       api("/api/v1/leads"),
@@ -3078,6 +3111,7 @@ async function loadAll() {
       api("/api/v1/career-sources"),
       api("/api/v1/campaigns"),
       api("/api/v1/drafts"),
+      api("/api/v1/draft-archives"),
       api("/api/v1/replies"),
       api("/api/v1/audit-events"),
       api("/api/v1/gmail/accounts"),
@@ -3090,6 +3124,7 @@ async function loadAll() {
     state.careerSources = careerSources;
     state.campaigns = campaigns;
     state.drafts = drafts;
+    state.draftArchives = draftArchives;
     state.replies = replies;
     state.auditEvents = auditEvents;
     state.gmailAccounts = gmailAccounts;

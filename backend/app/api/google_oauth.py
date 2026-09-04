@@ -62,11 +62,11 @@ async def start_google_oauth(
 ) -> RedirectResponse:
     """Redirect the operator to Google consent for a Gmail account."""
     settings = get_settings()
-    _ensure_local_setup(settings.google_client_id, settings.google_client_secret)
+    client_id, client_secret = _oauth_credentials(settings.google_client_id, settings.google_client_secret)
     redirect_uri = _oauth_redirect_uri(settings.google_oauth_redirect_uri, request)
 
     params = {
-        "client_id": settings.google_client_id,
+        "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": " ".join(GMAIL_SCOPES),
@@ -103,13 +103,13 @@ async def google_oauth_callback(
         )
 
     settings = get_settings()
-    _ensure_local_setup(settings.google_client_id, settings.google_client_secret)
+    client_id, client_secret = _oauth_credentials(settings.google_client_id, settings.google_client_secret)
     redirect_uri = _oauth_redirect_uri(settings.google_oauth_redirect_uri, request)
 
     token_payload = {
         "code": code,
-        "client_id": settings.google_client_id,
-        "client_secret": settings.google_client_secret,
+        "client_id": client_id,
+        "client_secret": client_secret,
         "redirect_uri": redirect_uri,
         "grant_type": "authorization_code",
     }
@@ -224,6 +224,17 @@ async def delete_gmail_account(account_id: UUID, db: AsyncSession = Depends(get_
     if account is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gmail account not found.")
     return GmailAccountRead.from_model(account)
+
+
+def _oauth_credentials(client_id: str, client_secret: str) -> tuple[str, str]:
+    normalized_client_id = _clean_oauth_value(client_id)
+    normalized_client_secret = _clean_oauth_value(client_secret)
+    _ensure_local_setup(normalized_client_id, normalized_client_secret)
+    return normalized_client_id, normalized_client_secret
+
+
+def _clean_oauth_value(value: str) -> str:
+    return value.strip().lstrip("\ufeff")
 
 
 def _ensure_local_setup(client_id: str, client_secret: str) -> None:

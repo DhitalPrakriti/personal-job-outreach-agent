@@ -226,6 +226,26 @@ class EmailDraftModel(TimestampMixin, Base):
     replies: Mapped[list["EmailReplyModel"]] = relationship(back_populates="draft")
 
 
+class DraftArchiveModel(Base):
+    __tablename__ = "draft_archives"
+
+    id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    original_draft_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    lead_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    company: Mapped[str | None] = mapped_column(String(200))
+    job_title: Mapped[str | None] = mapped_column(String(200))
+    contact_email: Mapped[str | None] = mapped_column(String(320))
+    subject: Mapped[str] = mapped_column(String(300), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_by: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    reviewer: Mapped[str | None] = mapped_column(String(200))
+    review_note: Mapped[str | None] = mapped_column(Text)
+    archived_reason: Mapped[str] = mapped_column(String(200), nullable=False)
+    original_created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
 class EmailReplyModel(Base):
     __tablename__ = "email_replies"
 

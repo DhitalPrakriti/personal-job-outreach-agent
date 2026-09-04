@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     email_reply_sync_enabled: bool = False
     email_reply_lookback_hours: int = 72
     email_reply_max_messages: int = 50
+
+    @field_validator("google_client_id", "google_client_secret", mode="before")
+    @classmethod
+    def normalize_google_oauth_value(cls, value: str) -> str:
+        return value.strip().lstrip("\ufeff") if isinstance(value, str) else value
 
     model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -21,6 +21,7 @@ from app.db.models import (
     CampaignModel,
     CareerSourceModel,
     ContactResearchModel,
+    DraftArchiveModel,
     EmailDraftModel,
     EmailReplyModel,
     LeadModel,
@@ -875,23 +876,40 @@ class PipelineService:
         if lead is None:
             return False
 
-        draft_ids = list(
-            (
-                await self.session.execute(
-                    select(EmailDraftModel.id).where(EmailDraftModel.lead_id == lead_id)
-                )
-            ).scalars().all()
+        drafts = list(
+            (await self.session.execute(select(EmailDraftModel).where(EmailDraftModel.lead_id == lead_id)))
+            .scalars()
+            .all()
         )
+        for draft in drafts:
+            archive = DraftArchiveModel(
+                original_draft_id=draft.id,
+                lead_id=lead.id,
+                company=lead.company,
+                job_title=lead.title,
+                contact_email=lead.email,
+                subject=draft.subject,
+                body=draft.body,
+                generated_by=draft.generated_by,
+                status=draft.status.value,
+                reviewer=draft.reviewer,
+                review_note=draft.review_note,
+                archived_reason="Opportunity deleted",
+                original_created_at=draft.created_at,
+            )
+            self.session.add(archive)
+            self._audit(
+                AuditAction.DRAFT_ARCHIVED,
+                "draft_archive",
+                draft.id,
+                f"Draft archived before deleting opportunity {lead.company or lead.first_name}",
+            )
         reply_ids = list(
             (
                 await self.session.execute(
                     select(EmailReplyModel.id).where(EmailReplyModel.lead_id == lead_id)
                 )
             ).scalars().all()
-        )
-        audit_entity_ids = [lead_id, *draft_ids, *reply_ids]
-        await self.session.execute(
-            delete(AuditEventModel).where(AuditEventModel.entity_id.in_(audit_entity_ids))
         )
         await self.session.execute(delete(ApplicationModel).where(ApplicationModel.lead_id == lead_id))
         await self.session.execute(delete(ContactResearchModel).where(ContactResearchModel.lead_id == lead_id))
@@ -1097,6 +1115,10 @@ class PipelineService:
 
     async def list_drafts(self) -> list[EmailDraftModel]:
         result = await self.session.execute(select(EmailDraftModel).order_by(EmailDraftModel.created_at))
+        return list(result.scalars().all())
+
+    async def list_draft_archives(self) -> list[DraftArchiveModel]:
+        result = await self.session.execute(select(DraftArchiveModel).order_by(DraftArchiveModel.archived_at.desc()))
         return list(result.scalars().all())
 
     async def get_draft(self, draft_id: UUID) -> EmailDraftModel | None:
