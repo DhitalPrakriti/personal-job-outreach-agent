@@ -6,6 +6,18 @@ This project is built as a personal automation system, not a bulk email tool. Li
 
 Live App: https://personal-outreach-agent-21647215439.us-central1.run.app/ 
 
+## 🎥 Project Demo
+
+[▶ Watch the 3-minute demo](YOUR_VIDEO_LINK)
+
+The demo covers:
+- Multi-source job discovery
+- Opportunity tracking and fit analysis
+- Gemini-powered outreach generation
+- Human approval workflow
+- Gmail OAuth integration
+- Reply/follow-up tracking
+- Cloud deployment on GCP
 ## What It Does
 
 - Discovers early-career tech opportunities from public job feeds, saved career-page sources, and manual imports.
